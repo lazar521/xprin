@@ -1,0 +1,23 @@
+/.bin
+/.cache
+/.work
+/.hack
+/_output
+cover.out
+/vendor
+/.vendor-new
+.DS_Store
+Zone.Identifier
+.tmp-earthly-out/
+
+# ignore vscode files (debug config etc...)
+/.vscode
+/.idea
+/.devcontainer
+
+# Crossplane packages
+*.xpkg
+
+# go build output
+/xprin
+/xprin-helpers
