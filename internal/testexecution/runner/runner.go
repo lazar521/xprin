@@ -486,6 +486,9 @@ func (r *Runner) runTestCase(testCase api.TestCase, testSuiteResult *engine.Test
 		hookExecutor := newHookExecutor(r.Repositories, r.Debug, r.runCommand, r.renderTemplate)
 
 		result.PreTestHooksResults, err = hookExecutor.executeHooks(testCase.Hooks.PreTest, "pre-test", testCase.Inputs, nil, testSuiteResult.GetCompletedTests())
+		// Format hooks output once
+		result.ProcessHooksOutput()
+
 		if err != nil {
 			return result.Fail(err)
 		}
@@ -683,6 +686,9 @@ func (r *Runner) runTestCase(testCase api.TestCase, testSuiteResult *engine.Test
 		hookExecutor := newHookExecutor(r.Repositories, r.Debug, r.runCommand, r.renderTemplate)
 
 		result.PostTestHooksResults, err = hookExecutor.executeHooks(testCase.Hooks.PostTest, "post-test", testCase.Inputs, &result.Outputs, testSuiteResult.GetCompletedTests())
+		// Format hooks output once
+		result.ProcessHooksOutput()
+
 		if err != nil {
 			// Store hook error but continue execution
 			finalError = append(finalError, err.Error())
