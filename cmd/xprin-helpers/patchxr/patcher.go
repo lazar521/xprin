@@ -20,35 +20,21 @@ import (
 	"encoding/json"
 
 	"github.com/google/uuid"
-	"github.com/spf13/afero"
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	schema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
 	structuraldefaulting "k8s.io/apiextensions-apiserver/pkg/apiserver/schema/defaulting"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"sigs.k8s.io/yaml"
 
-	"github.com/crossplane/crossplane-runtime/pkg/errors"
-	"github.com/crossplane/crossplane-runtime/pkg/fieldpath"
+	"github.com/crossplane/crossplane-runtime/v2/pkg/errors"
+	"github.com/crossplane/crossplane-runtime/v2/pkg/fieldpath"
 
-	apiextensionsv1 "github.com/crossplane/crossplane/apis/apiextensions/v1"
+	apiextensionsv1 "github.com/crossplane/crossplane/v2/apis/apiextensions/v1"
 )
 
 // hasPatchingFlags determines if any patching flags are provided.
 func (c *Cmd) hasPatchingFlags() bool {
 	return c.XRD != "" || c.AddConnectionSecret
-}
-
-// LoadXRD loads an XRD from a YAML file as an unstructured object.
-func LoadXRD(fs afero.Fs, filePath string) (*apiextensionsv1.CompositeResourceDefinition, error) {
-	y, err := afero.ReadFile(fs, filePath)
-	if err != nil {
-		return nil, errors.Wrap(err, "cannot read XRD file")
-	}
-
-	xrd := &apiextensionsv1.CompositeResourceDefinition{}
-
-	return xrd, errors.Wrap(yaml.Unmarshal(y, xrd), "cannot unmarshal XRD YAML")
 }
 
 // DefaultValuesFromXRD sets default values on the XR based on the XRD schema.

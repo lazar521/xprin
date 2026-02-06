@@ -26,7 +26,9 @@ import (
 	"github.com/spf13/afero"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"github.com/crossplane/crossplane-runtime/pkg/test"
+	"github.com/crossplane/crossplane-runtime/v2/pkg/test"
+
+	"github.com/crossplane/crossplane/v2/cmd/crank/render"
 )
 
 // testXR is a basic test XR for testing patch functionality.
@@ -80,11 +82,6 @@ spec:
                     default: 30`
 }
 
-// invalidTestXRD returns an invalid XRD YAML string for testing.
-func invalidTestXRD() string {
-	return "invalid: yaml: content: ["
-}
-
 func TestHasPatchingFlags(t *testing.T) {
 	tests := []struct {
 		name                      string
@@ -131,79 +128,6 @@ func TestHasPatchingFlags(t *testing.T) {
 			}
 			if got := c.hasPatchingFlags(); got != tt.want {
 				t.Errorf("Cmd.hasPatchingFlags() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestLoadXRD(t *testing.T) {
-	tests := []struct {
-		name        string
-		yamlContent string
-		wantErr     bool
-		errMsg      string
-	}{
-		{
-			name:        "valid XRD",
-			yamlContent: validTestXRD(),
-			wantErr:     false,
-		},
-		{
-			name:        "invalid YAML",
-			yamlContent: invalidTestXRD(),
-			wantErr:     true,
-			errMsg:      "yaml:",
-		},
-		{
-			name:        "empty content",
-			yamlContent: "",
-			wantErr:     true,
-		},
-		{
-			name:        "file not found",
-			yamlContent: "", // Don't write any file
-			wantErr:     true,
-			errMsg:      "cannot read XRD file",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fs := afero.NewMemMapFs()
-
-			if tt.yamlContent != "" {
-				if err := afero.WriteFile(fs, "test-xrd.yaml", []byte(tt.yamlContent), 0o644); err != nil {
-					t.Fatalf("Failed to write test file: %v", err)
-				}
-			}
-
-			xrd, err := LoadXRD(fs, "test-xrd.yaml")
-
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("loadXRD() expected error but got none")
-					return
-				}
-
-				if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
-					t.Errorf("loadXRD() error = %v, want error containing %v", err, tt.errMsg)
-				}
-
-				return
-			}
-
-			if err != nil {
-				t.Errorf("loadXRD() unexpected error = %v", err)
-				return
-			}
-
-			if xrd == nil {
-				t.Errorf("loadXRD() returned nil XRD")
-				return
-			}
-
-			if xrd.GetName() != "xtestapps.example.org" {
-				t.Errorf("loadXRD() XRD name = %v, want xtestapps.example.org", xrd.GetName())
 			}
 		})
 	}
@@ -348,7 +272,7 @@ spec:
 				t.Fatalf("Failed to write test XRD file: %v", err)
 			}
 
-			xrd, err := LoadXRD(fs, "test-xrd.yaml")
+			xrd, err := render.LoadXRD(fs, "test-xrd.yaml")
 			if err != nil {
 				t.Fatalf("Failed to load test XRD: %v", err)
 			}
