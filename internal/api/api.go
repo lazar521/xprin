@@ -51,12 +51,12 @@ type Hook struct {
 
 // Assertion represents a single assertion to be evaluated.
 type Assertion struct {
-	Name     string      `yaml:"name"`     // Descriptive name for the assertion
-	Type     string      `yaml:"type"`     // Type of assertion (e.g., "Count", "Exists", "FieldType")
-	Resource string      `yaml:"resource"` // Resource identifier for resource-based assertions (e.g., "S3Bucket/my-bucket")
-	Field    string      `yaml:"field"`    // Field path for field-based assertions (e.g., "metadata.name")
-	Operator string      `yaml:"operator"` // Operator for field value assertions (e.g., "==", "contains")
-	Value    interface{} `yaml:"value"`    // Expected value for the assertion
+	Name     string      `yaml:"name"`               // Descriptive name for the assertion
+	Type     string      `yaml:"type"`               // Type of assertion (e.g., "Count", "Exists", "FieldType")
+	Resource string      `yaml:"resource,omitempty"` // Resource identifier for resource-based assertions (e.g., "S3Bucket/my-bucket")
+	Field    string      `yaml:"field,omitempty"`    // Field path for field-based assertions (e.g., "metadata.name")
+	Operator string      `yaml:"operator,omitempty"` // Operator for field value assertions (e.g., "==", "contains")
+	Value    interface{} `yaml:"value,omitempty"`    // Expected value for the assertion
 }
 
 // Assertions represents assertions grouped by execution engine.
@@ -66,7 +66,7 @@ type Assertions struct {
 
 // Common represents the common configuration for a testsuite file.
 type Common struct {
-	Inputs     Inputs     `yaml:"inputs"`
+	Inputs     Inputs     `yaml:"inputs,omitempty"`
 	Patches    Patches    `yaml:"patches,omitempty"`
 	Hooks      Hooks      `yaml:"hooks,omitempty"`
 	Assertions Assertions `yaml:"assertions,omitempty"`
