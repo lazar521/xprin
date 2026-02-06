@@ -26,9 +26,10 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
 
-	"github.com/crossplane/crossplane-runtime/pkg/errors"
+	"github.com/crossplane/crossplane-runtime/v2/pkg/errors"
 
-	commonIO "github.com/crossplane/crossplane/cmd/crank/beta/convert/io"
+	commonIO "github.com/crossplane/crossplane/v2/cmd/crank/beta/convert/io"
+	"github.com/crossplane/crossplane/v2/cmd/crank/render"
 )
 
 // Cmd arguments and flags for patching a Crossplane XR (Composite Resource).
@@ -112,7 +113,7 @@ func (c *Cmd) Run(k *kong.Context) error {
 	// Based on the `crossplane render --xrd` flag of Crossplane CLI v2
 	// https://github.com/crossplane/crossplane/blob/v2.0.2/cmd/crank/render/cmd.go#L186-L200
 	if c.XRD != "" {
-		xrd, err := LoadXRD(c.fs, c.XRD)
+		xrd, err := render.LoadXRD(c.fs, c.XRD)
 		if err != nil {
 			return err
 		}
