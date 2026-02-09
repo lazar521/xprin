@@ -12,23 +12,34 @@ testcase_001="examples/mytests/1_simple_tests/example1_using-xr_xprin.yaml examp
 # Multiple Successful Files (Verbose)
 testcase_002="examples/mytests/1_simple_tests/example1_using-xr_xprin.yaml examples/mytests/1_simple_tests/example2_using-claim_xprin.yaml examples/mytests/2_multiple_testcases/example2_multiple-reconciliation-loops-using-common_xprin.yaml -v"
 
-# Multiple Failures - Combined File (Non-Verbose)
-testcase_003="examples/mytests/0_combined/example1_failures_xprin.yaml"
+# Combination of successful and failed testsuite files (Non-Verbose)
+testcase_003="examples/mytests/1_simple_tests/example1_using-xr_xprin.yaml examples/mytests/0_e2e/single_failure_xprin.yaml examples/mytests/1_simple_tests/example2_using-claim_xprin.yaml"
 testcase_003_exit=1
 
-# Multiple Failures - Combined File (Verbose)
-testcase_004="examples/mytests/0_combined/example1_failures_xprin.yaml -v"
+# Combination of successful and failed testsuite files (Verbose)
+testcase_004="examples/mytests/1_simple_tests/example1_using-xr_xprin.yaml examples/mytests/0_e2e/single_failure_xprin.yaml examples/mytests/1_simple_tests/example2_using-claim_xprin.yaml -v"
 testcase_004_exit=1
 
-# Multiple Failures - Combined File (Verbose, show flags)
-testcase_005="examples/mytests/0_combined/example1_failures_xprin.yaml -v --show-render --show-validate --show-hooks --show-assertions"
+# Multiple Failures - Combined File (Non-Verbose)
+testcase_005="examples/mytests/0_e2e/failures_xprin.yaml"
 testcase_005_exit=1
 
+# Multiple Failures - Combined File (Verbose)
+testcase_006="examples/mytests/0_e2e/failures_xprin.yaml -v"
+testcase_006_exit=1
+
+# Multiple Failures - Combined File (Verbose, show flags)
+testcase_007="examples/mytests/0_e2e/failures_xprin.yaml -v --show-render --show-validate --show-hooks --show-assertions"
+testcase_007_exit=1
+
 # Successful with hooks/validate/assertions (Verbose, show flags)
-testcase_006="examples/mytests/0_combined/example2_success_xprin.yaml -v --show-render --show-validate --show-hooks --show-assertions"
+testcase_008="examples/mytests/0_e2e/success_xprin.yaml -v --show-render --show-validate --show-hooks --show-assertions"
 
 # Test with Chained Outputs
-testcase_007="examples/mytests/5_chained_tests/example1_chained-test-outputs_xprin.yaml -v --show-render --show-validate"
+testcase_009="examples/mytests/5_chained_tests/example1_chained-test-outputs_xprin.yaml -v --show-render --show-validate"
 
 # Cross-Composition Chaining
-testcase_008="examples/mytests/5_chained_tests/example2_cross-composition-chaining_xprin.yaml -v --show-render --show-validate"
+testcase_010="examples/mytests/5_chained_tests/example2_cross-composition-chaining_xprin.yaml -v --show-render --show-validate"
+
+testcase_011="examples/mytests/0_e2e/invalid_xprin.yaml -v --show-render --show-validate --show-hooks --show-assertions"
+testcase_011_exit=1
