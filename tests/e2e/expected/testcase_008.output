@@ -1,24 +1,54 @@
-=== RUN   Base layer final loop
---- PASS: Base layer final loop (X.XXXs)
+=== RUN   Successful test with hooks, validation, and assertions
+--- PASS: Successful test with hooks, validation, and assertions (X.XXXs)
+    pre-test hooks results:
+        - Pre-test hook
+            running pre-test hook
+        - Pre-test hook (multiline stdout)
+            line one
+            line two
+            line three
+        - echo "unnamed pre-test hook"
+            unnamed pre-test hook
     Rendered resources:
-        ├── XBaseInfrastructure/platform-base
-        ├── XAWSInfrastructure/platform-base-aws
-        ├── XGCPInfrastructure/platform-base-gcp
-        └── Object/platform-base-base-namespace
+        ├── XAWSInfrastructure/platform-aws
+        ├── Cluster/platform-aws-rds
+        └── SecurityGroup/platform-aws-sg
     Validation results:
-        [✓] base.example.com/v1, Kind=XBaseInfrastructure, platform-base validated successfully
-        [✓] aws.example.com/v1, Kind=XAWSInfrastructure, platform-base-aws validated successfully
-        [✓] gcp.example.com/v1, Kind=XGCPInfrastructure, platform-base-gcp validated successfully
-        [✓] kubernetes.crossplane.io/v1alpha2, Kind=Object, platform-base-base-namespace validated successfully
-        Total 4 resources: 0 missing schemas, 4 success cases, 0 failure cases
-=== RUN   AWS layer first loop
---- PASS: AWS layer first loop (X.XXXs)
+        [✓] aws.example.com/v1, Kind=XAWSInfrastructure, platform-aws validated successfully
+        [✓] rds.aws.upbound.io/v1beta1, Kind=Cluster, platform-aws-rds validated successfully
+        [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-aws-sg validated successfully
+        Total 3 resources: 0 missing schemas, 3 success cases, 0 failure cases
+    Assertions results:
+        PASS: Number of resources - found 3 resources (as expected)
+        PASS: SecurityGroup should exist - resource SecurityGroup/platform-aws-sg found
+        PASS: RDS should exist - resource Cluster/platform-aws-rds found
+        PASS: SecurityGroup should have a name - field metadata.name exists
+        PASS: SecurityGroup description should be string - field spec.forProvider.description has expected type string
+    post-test hooks results:
+        - Post-test hook
+            running post-test hook
+        - Post-test hook (multiline stdout)
+            output A
+            output B
+            output C
+        - echo "unnamed post-test hook"
+            unnamed post-test hook
+=== RUN   CRDs with same base name are not overwritten
+--- PASS: CRDs with same base name are not overwritten (X.XXXs)
     Rendered resources:
-        ├── XAWSInfrastructure/platform-base-aws
-        └── SecurityGroup/platform-base-aws-sg
+        ├── XAWSInfrastructure/platform-aws
+        └── SecurityGroup/platform-aws-sg
     Validation results:
-        [✓] aws.example.com/v1, Kind=XAWSInfrastructure, platform-base-aws validated successfully
-        [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-base-aws-sg validated successfully
+        [✓] aws.example.com/v1, Kind=XAWSInfrastructure, platform-aws validated successfully
+        [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-aws-sg validated successfully
         Total 2 resources: 0 missing schemas, 2 success cases, 0 failure cases
+    post-test hooks results:
+        - List CRDs in inputs (xrd.yaml, xrd_1.yaml, xrd_2.yaml, ...)
+            crossplane.yaml
+            xrd.yaml
+            xrd_1.yaml
+            xrd_2.yaml
+        - Verify all 3 XRD files present (not overwritten)
+            All 3 CRDs present (not overwritten)
 PASS
-ok	examples/mytests/5_chained_tests/example2_cross-composition-chaining_xprin.yaml	X.XXXs
+ok	examples/mytests/0_e2e/success_xprin.yaml	X.XXXs

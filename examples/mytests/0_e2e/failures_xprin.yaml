@@ -1,0 +1,241 @@
+tests:
+
+# Failures before pipeline execution (before pre-test hooks or render)
+- name: "Missing required inputs (multiline error)"
+
+# Render failures
+- name: "Render failure (claim used as XR)"
+  inputs:
+    xr: ../../aws/claim.yaml
+    composition: ../../aws/composition.yaml
+    functions: ../../aws/functions.yaml
+    crds:
+    - ../../aws/xrd.yaml
+  assertions:
+    xprin:
+    - name: "Successful assertion, it should never be shown"
+      type: "Count"
+      value: 2
+    - name: "Failed assertion, it should never be shown"
+      type: "Count"
+      value: 0
+  hooks:
+    pre-test:
+    - name: "Successful pre-test hook without output"
+      run: exit
+    - run: echo "hello"
+    post-test:
+    - name: "Successful post-test hook, it should never be shown"
+      run: echo "bye"
+    - name: "Failed post-test hook, it should never be shown"
+      run: exit 2
+
+# Validation failures
+- name: "Validation failure (missing CRD)"
+  inputs:
+    xr: ../../aws/xr.yaml
+    composition: ../../aws/composition.yaml
+    functions: ../../aws/functions.yaml
+    crds:
+    - ../../gcp/xrd.yaml
+    - ../../aws/crossplane.yaml
+  assertions:
+    xprin:
+    - name: "Successful assertion"
+      type: "Count"
+      value: 2
+  hooks:
+    pre-test:
+    - run: echo "hello"
+    post-test:
+    - run: echo "bye"
+
+- name: "Validation failure (v1 only) (missing required team)"
+  inputs:
+    xr: ../../aws/xr_without_team.yaml
+    composition: ../../aws/composition.yaml
+    functions: ../../aws/functions.yaml
+    crds:
+    - ../../aws/xrd.yaml
+    - ../../aws/crossplane.yaml
+
+# Pre-test hook failures
+- name: "Pre-test hook failure"
+  inputs:
+    xr: ../../aws/xr.yaml
+    composition: ../../aws/composition.yaml
+    functions: ../../aws/functions.yaml
+    crds:
+    - ../../aws/crossplane.yaml
+  assertions:
+    xprin:
+    - name: "Successful assertion, it should never be shown"
+      type: "Count"
+      value: 2
+    - name: "Failed assertion, it should never be shown"
+      type: "Count"
+      value: 0
+  hooks:
+    pre-test:
+    - name: "Fail pre-test hook"
+      run: exit 1
+    - name: "Another failed pre-test hook, it should never be shown"
+      run: exit 2
+    post-test:
+    - name: "Successful post-test hook, it should never be shown"
+      run: echo "bye"
+    - name: "Failed post-test hook, it should never be shown"
+      run: exit 2
+    - name: "Another successful post-test hook, it should never be shown"
+      run: exit 3
+
+- name: "Pre-test hook failure (unnamed)"
+  inputs:
+    xr: ../../aws/xr.yaml
+    composition: ../../aws/composition.yaml
+    functions: ../../aws/functions.yaml
+  hooks:
+    pre-test:
+    - run: exit 1
+
+- name: "Pre-test hook failure (multiline stderr)"
+  inputs:
+    xr: ../../aws/xr.yaml
+    composition: ../../aws/composition.yaml
+    functions: ../../aws/functions.yaml
+  hooks:
+    pre-test:
+    - name: "Fail pre-test hook (multiline stderr)"
+      run: |
+        echo "first line" >&2
+        echo "second line" >&2
+        echo "third line" >&2
+        exit 1
+
+- name: "Pre-test hook failure (multiline stdout)"
+  inputs:
+    xr: ../../aws/xr.yaml
+    composition: ../../aws/composition.yaml
+    functions: ../../aws/functions.yaml
+  hooks:
+    pre-test:
+    - name: "Fail pre-test hook (multiline stdout)"
+      run: |
+        echo "stdout line 1"
+        echo "stdout line 2"
+        exit 1
+
+- name: "Pre-test hook failure (multiline stdout and stderr)"
+  inputs:
+    xr: ../../aws/xr.yaml
+    composition: ../../aws/composition.yaml
+    functions: ../../aws/functions.yaml
+  hooks:
+    pre-test:
+    - name: "Fail pre-test hook (multiline stdout and stderr)"
+      run: |
+        echo "stdout 1"
+        echo "stderr 2" >&2
+        echo "stdout 3"
+        echo "stderr 4" >&2
+        exit 1
+
+- name: "Successful test case"
+  inputs:
+    xr: ../../aws/xr.yaml
+    composition: ../../aws/composition.yaml
+    functions: ../../aws/functions.yaml
+
+# Post-test hook failures
+- name: "Post-test hook failure"
+  inputs:
+    xr: ../../aws/xr.yaml
+    composition: ../../aws/composition.yaml
+    functions: ../../aws/functions.yaml
+    crds:
+    - ../../aws/xrd.yaml
+    - ../../aws/crossplane.yaml
+  assertions:
+    xprin:
+    - name: "Successful assertion"
+      type: "Count"
+      value: 2
+  hooks:
+    pre-test:
+    - run: echo "hello"
+    post-test:
+    - name: "Fail post-test hook"
+      run: exit 1
+    - name: Another failed post-test hook, it should never be shown"
+      run: exit 2
+
+# Assertion failures
+- name: "Assertion failure"
+  inputs:
+    xr: ../../aws/xr.yaml
+    composition: ../../aws/composition.yaml
+    functions: ../../aws/functions.yaml
+    crds:
+    - ../../aws/xrd.yaml
+    - ../../aws/crossplane.yaml
+  assertions:
+    xprin:
+    - name: "Resource count should be two"
+      type: "Count"
+      value: 2
+    - name: "Resource count should be zero"
+      type: "Count"
+      value: 0
+  hooks:
+    pre-test:
+    - run: echo "hello"
+    post-test:
+    - run: echo "bye"
+
+# Combined failures
+- name: "Failed validation and assertion"
+  inputs:
+    xr: ../../aws/xr.yaml
+    composition: ../../aws/composition.yaml
+    functions: ../../aws/functions.yaml
+    crds:
+    - ../../gcp/xrd.yaml
+    - ../../aws/crossplane.yaml
+  assertions:
+    xprin:
+    - name: "Successful assertion"
+      type: "Count"
+      value: 2
+    - name: "Failed assertion"
+      type: "Count"
+      value: 0
+  hooks:
+    pre-test:
+    - run: echo "hello"
+    post-test:
+    - run: echo "bye"
+
+- name: "Failed validation, assertion, and post-test hook"
+  inputs:
+    xr: ../../aws/xr.yaml
+    composition: ../../aws/composition.yaml
+    functions: ../../aws/functions.yaml
+    crds:
+    - ../../gcp/xrd.yaml
+    - ../../aws/crossplane.yaml
+  assertions:
+    xprin:
+    - name: "Successful assertion"
+      type: "Count"
+      value: 2
+    - name: "Failed assertion"
+      type: "Count"
+      value: 0
+  hooks:
+    pre-test:
+    - run: echo "hello"
+    post-test:
+    - name: "Successful post-test hook"
+      run: echo "bye"
+    - name: "Failed post-test hook"
+      run: exit 2

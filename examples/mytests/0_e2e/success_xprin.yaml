@@ -63,6 +63,6 @@ tests:
   hooks:
     post-test:
     - name: "List CRDs in inputs (xrd.yaml, xrd_1.yaml, xrd_2.yaml, ...)"
-      run: ls $(dirname {{ index .Inputs.CRDs 0 }})
+      run: ls $(dirname {{ index .Inputs.CRDs 0 }}) | LC_ALL=C sort
     - name: "Verify all 3 XRD files present (not overwritten)"
       run: test -f {{ index .Inputs.CRDs 0 }} && test -f {{ index .Inputs.CRDs 1 }} && test -f {{ index .Inputs.CRDs 2 }} && echo "All 3 CRDs present (not overwritten)"
