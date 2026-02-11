@@ -170,21 +170,53 @@ test-e2e-all:
   BUILD +test-e2e-v1
   BUILD +test-e2e-v2
 
-# regen-e2e-expected regenerates tests/e2e/expected/*.output for both Crossplane v1 and v2 in one run.
-regen-e2e-expected:
+# regen-e2e-expected-v1 runs the regen script for Crossplane v1 only; used in parallel with v2 then merged.
+regen-e2e-expected-v1:
   ARG TARGETARCH
   ARG TARGETOS
   ARG GOARCH=${TARGETARCH}
   ARG GOOS=${TARGETOS}
   FROM earthly/dind:alpine-3.20-docker-26.1.5-r0
-  RUN mkdir -p /opt/crossplane/v1/bin /opt/crossplane/v2/bin
-  COPY (+crossplane-cli/crossplane --CROSSPLANE_VERSION=${E2E_CROSSPLANE_V1}) /opt/crossplane/v1/bin/crossplane
-  COPY (+crossplane-cli/crossplane --CROSSPLANE_VERSION=${E2E_CROSSPLANE_V2}) /opt/crossplane/v2/bin/crossplane
+  COPY (+crossplane-cli/crossplane --CROSSPLANE_VERSION=${E2E_CROSSPLANE_V1}) /usr/local/bin/crossplane
   RUN apk add --no-cache bash
   COPY +go-build/xprin .
-  COPY --dir examples/ tests/ ./
-  RUN chmod +x tests/e2e/scripts/run.sh tests/e2e/scripts/regen-expected.sh
+  COPY --dir examples/ tests/e2e/scripts/ ./
+  RUN chmod +x scripts/regen-expected.sh
+  RUN mkdir expected
   WITH DOCKER
-    RUN CROSSPLANE_V1=/opt/crossplane/v1/bin/crossplane CROSSPLANE_V2=/opt/crossplane/v2/bin/crossplane /tests/e2e/scripts/regen-expected.sh
+    RUN CROSSPLANE_V1=/usr/local/bin/crossplane scripts/regen-expected.sh v1
   END
-  SAVE ARTIFACT tests/e2e/expected AS LOCAL tests/e2e/expected
+  SAVE ARTIFACT expected
+
+# regen-e2e-expected-v2 runs the regen script for Crossplane v2 only; used in parallel with v1 then merged.
+regen-e2e-expected-v2:
+  ARG TARGETARCH
+  ARG TARGETOS
+  ARG GOARCH=${TARGETARCH}
+  ARG GOOS=${TARGETOS}
+  FROM earthly/dind:alpine-3.20-docker-26.1.5-r0
+  COPY (+crossplane-cli/crossplane --CROSSPLANE_VERSION=${E2E_CROSSPLANE_V2}) /usr/local/bin/crossplane
+  RUN apk add --no-cache bash
+  COPY +go-build/xprin .
+  COPY --dir examples/ tests/e2e/scripts/ ./
+  RUN chmod +x scripts/regen-expected.sh
+  RUN mkdir expected
+  WITH DOCKER
+    RUN CROSSPLANE_V2=/usr/local/bin/crossplane scripts/regen-expected.sh v2
+  END
+  SAVE ARTIFACT expected
+
+# regen-e2e-expected runs v1 and v2 in parallel, merges artifacts, runs cleanup, then exports.
+regen-e2e-expected:
+  BUILD +regen-e2e-expected-v1
+  BUILD +regen-e2e-expected-v2
+  FROM alpine:3.20
+  RUN apk add --no-cache bash
+  WORKDIR /work
+  COPY +regen-e2e-expected-v1/expected expected/
+  COPY +regen-e2e-expected-v2/expected expected/
+  COPY --dir tests/e2e/scripts/ ./
+  RUN chmod +x scripts/regen-expected.sh
+  RUN ls -la expected
+  RUN scripts/regen-expected.sh cleanup
+  SAVE ARTIFACT expected AS LOCAL tests/e2e/expected
