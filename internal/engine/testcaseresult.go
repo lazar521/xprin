@@ -21,10 +21,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"strings"
 	"time"
 
-	"github.com/gertd/go-pluralize"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
 )
@@ -49,25 +49,25 @@ type TestCaseResult struct {
 	RenderedResources []*unstructured.Unstructured
 
 	// Formatted outputs (formatted once, displayed many times)
-	FormattedRenderOutput           string
-	FormattedValidateOutput         string
-	FormattedPreTestHooksOutput     string
-	FormattedPostTestHooksOutput    string
-	FormattedAssertionsOutput       string // All assertions (for verbose display)
-	FormattedAssertionsFailedOutput string // Failed assertions only (for error messages)
+	FormattedRenderOutput        string
+	FormattedValidateOutput      string
+	FormattedPreTestHooksOutput  string
+	FormattedPostTestHooksOutput string
+	FormattedAssertionsOutput    string
 
 	PreTestHooksResults  []HookResult
 	PostTestHooksResults []HookResult
 
-	AssertionsAllResults    []AssertionResult
-	AssertionsFailedResults []AssertionResult
+	AssertionsResults []AssertionResult
 
 	// Outputs for template variables in hooks
 	Outputs Outputs
 
-	hasFailedRender     bool
-	hasFailedValidate   bool
-	hasFailedAssertions bool
+	HasFailedRender        bool
+	HasFailedValidate      bool
+	HasFailedAssertions    bool
+	HasFailedPreTestHooks  bool
+	HasFailedPostTestHooks bool
 
 	// Formatting flags (passed from runner)
 	Verbose        bool
@@ -124,18 +124,25 @@ func (tcr *TestCaseResult) Complete() *TestCaseResult {
 }
 
 // FailRender handles render failure with proper formatting.
+// Error is not set; the failure is shown only via the render section.
 func (tcr *TestCaseResult) FailRender() *TestCaseResult {
-	tcr.hasFailedRender = true
-	tcr.FormattedRenderOutput = strings.TrimSpace(string(tcr.RawRenderOutput))
+	tcr.HasFailedRender = true
+	tcr.FormattedRenderOutput = tcr.formatRenderOutput()
 
-	return tcr.Fail(fmt.Errorf("%s", tcr.FormattedRenderOutput))
+	return tcr.Fail(nil)
+}
+
+// HasPipelineFailure returns true if validate, assertions, or post-test hooks failed.
+// Used by the runner to call Fail(nil) when no infrastructure error was collected.
+func (tcr *TestCaseResult) HasPipelineFailure() bool {
+	return tcr.HasFailedValidate || tcr.HasFailedAssertions || tcr.HasFailedPostTestHooks
 }
 
 // MarkValidateFailed marks the test as having failed validation and returns the formatted error.
 // Callers should then call Fail() with this error to mark the test as failed.
 func (tcr *TestCaseResult) MarkValidateFailed() error {
-	tcr.hasFailedValidate = true
-	tcr.FormattedValidateOutput = tcr.formatValidateOutput(tcr.RawValidateOutput)
+	tcr.HasFailedValidate = true
+	tcr.FormattedValidateOutput = tcr.formatValidateOutput()
 
 	return fmt.Errorf("%s", tcr.FormattedValidateOutput)
 }
@@ -143,8 +150,8 @@ func (tcr *TestCaseResult) MarkValidateFailed() error {
 // MarkAssertionsFailed marks the test as having failed assertions and returns the formatted error.
 // Callers should then call Fail() with this error to mark the test as failed.
 func (tcr *TestCaseResult) MarkAssertionsFailed() error {
-	tcr.hasFailedAssertions = true
-	return fmt.Errorf("%s", tcr.FormattedAssertionsFailedOutput)
+	tcr.HasFailedAssertions = true
+	return fmt.Errorf("%s", tcr.formatAssertionsOutput())
 }
 
 // Print prints the test case result to the given writer.
@@ -162,50 +169,59 @@ func (tcr *TestCaseResult) Print(w io.Writer) {
 	// Print status line
 	fmt.Fprintf(w, "--- %s: %s (%.2fs)\n", tcr.Status, tcr.Name, tcr.Duration.Seconds()) //nolint:errcheck // output function, error handling not practical
 
-	if tcr.FormattedPreTestHooksOutput != "" && tcr.Verbose && tcr.ShowHooks {
-		fmt.Fprintf(w, "%s\n", tcr.FormattedPreTestHooksOutput) //nolint:errcheck // output function, error handling not practical
-	}
+	fmt.Fprint(w, tcr.FormattedPreTestHooksOutput)  //nolint:errcheck // output function, error handling not practical
+	fmt.Fprint(w, tcr.FormattedRenderOutput)        //nolint:errcheck // output function, error handling not practical
+	fmt.Fprint(w, tcr.FormattedValidateOutput)      //nolint:errcheck // output function, error handling not practical
+	fmt.Fprint(w, tcr.FormattedAssertionsOutput)    //nolint:errcheck // output function, error handling not practical
+	fmt.Fprint(w, tcr.FormattedPostTestHooksOutput) //nolint:errcheck // output function, error handling not practical
 
-	if tcr.FormattedRenderOutput != "" && !tcr.hasFailedRender && tcr.Verbose && tcr.ShowRender {
-		fmt.Fprintf(w, "%s\n", tcr.FormattedRenderOutput) //nolint:errcheck // output function, error handling not practical
-	}
-
-	if tcr.FormattedValidateOutput != "" && !tcr.hasFailedValidate && tcr.Verbose && tcr.ShowValidate {
-		fmt.Fprintf(w, "%s\n", tcr.FormattedValidateOutput) //nolint:errcheck // output function, error handling not practical
-	}
-
-	if tcr.FormattedAssertionsOutput != "" && tcr.Verbose && tcr.ShowAssertions {
-		fmt.Fprintf(w, "%s\n", tcr.FormattedAssertionsOutput) //nolint:errcheck // output function, error handling not practical
-	}
-
-	if tcr.FormattedPostTestHooksOutput != "" && tcr.Verbose && tcr.ShowHooks {
-		fmt.Fprintf(w, "%s\n", tcr.FormattedPostTestHooksOutput) //nolint:errcheck // output function, error handling not practical
-	}
-
-	// Print error message for failed tests
+	// Print error when set (only set for failures not represented in a section).
 	if tcr.Status == StatusFail && tcr.Error != nil {
-		errorLines := strings.Split(tcr.Error.Error(), "\n")
-		// Validate and assertion errors are already formatted with proper indentation (formatValidateOutput / formatAssertionsOutput).
-		// Other errors (e.g. from CheckMandatoryFields) need normalization so multiline messages don't get double-indented.
-		if tcr.hasFailedValidate || tcr.hasFailedAssertions {
-			// Print as-is (already formatted)
-			for _, line := range errorLines {
-				fmt.Fprintf(w, "    %s\n", line) //nolint:errcheck // output function, error handling not practical
-			}
-		} else {
-			// Normalize: remove leading whitespace from all lines then add consistent 4-space indentation
-			for _, line := range errorLines {
-				fmt.Fprintf(w, "    %s\n", strings.TrimLeft(line, " \t")) //nolint:errcheck // output function, error handling not practical
-			}
-		}
+		fmt.Fprint(w, formatErrorBlock(tcr.Error.Error())) //nolint:errcheck // output function, error handling not practical
 	}
 }
 
-// formatRenderOutput formats the rendered YAML raw output as a summary.
+// formatErrorBlock formats an error for the error block: section-aligned indent.
+// If errMsg already starts with the section indent (e.g. pre-formatted hooks/assertions output), it is returned as-is.
+// Otherwise each line is trimmed and prefixed with indent so simple multi-line errors (e.g. CheckMandatoryFields) are aligned.
+func formatErrorBlock(errMsg string) string {
+	if errMsg == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(errMsg, spaces) {
+		return errMsg
+	}
+
+	lines := strings.Split(strings.TrimSuffix(errMsg, "\n"), "\n")
+	for i := range lines {
+		lines[i] = spaces + strings.TrimSpace(lines[i])
+	}
+
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// formatRenderOutput formats the rendered YAML raw output for display.
+// Returns header "Render:" then body (success: resource tree; failure: raw output indented).
+// Returns "" when render succeeded and the section would not be shown (!Verbose && !ShowRender).
 func (tcr *TestCaseResult) formatRenderOutput() string {
+	const header = "Render:"
+
+	if !tcr.HasFailedRender && (!tcr.Verbose || !tcr.ShowRender) {
+		return ""
+	}
+
+	if tcr.HasFailedRender {
+		outputStr := strings.TrimSpace(string(tcr.RawRenderOutput))
+		bodyIndent := "\n" + spaces + spaces
+		body := strings.ReplaceAll(outputStr, "\n", bodyIndent)
+
+		return spaces + header + "\n" + spaces + spaces + body + "\n"
+	}
+
 	// Pre-allocate lines slice with capacity for all resources
 	lines := make([]string, 1, len(tcr.RenderedResources)+1)
-	lines[0] = fmt.Sprintf("%sRendered resources:", spaces)
+	lines[0] = fmt.Sprintf("%s%s", spaces, header)
 
 	// Loop over the resources and extract kind/name
 	for _, resource := range tcr.RenderedResources {
@@ -220,117 +236,205 @@ func (tcr *TestCaseResult) formatRenderOutput() string {
 	lastLineIndex := len(lines) - 1
 	lines[lastLineIndex] = strings.Replace(lines[lastLineIndex], "├──", "└──", 1)
 
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n") + "\n"
 }
 
 // formatValidateOutput formats the validation raw output for display.
-func (tcr *TestCaseResult) formatValidateOutput(output []byte) string {
-	outputStr := strings.TrimSpace(string(output))
+// Returns header "Validate:" plus upstream body (original order), indented.
+// When failed and !ShowValidate, filters out "[✓] ... validated successfully" lines.
+// Returns "" when validate passed and the section would not be shown (!Verbose && !ShowValidate).
+func (tcr *TestCaseResult) formatValidateOutput() string {
+	const header = "Validate:"
 
-	if tcr.hasFailedValidate {
-		// Get the crossplane error line (last line) and the rest
+	if !tcr.HasFailedValidate && (!tcr.Verbose || !tcr.ShowValidate) {
+		return ""
+	}
+
+	outputStr := strings.TrimSpace(string(tcr.RawValidateOutput))
+	if tcr.HasFailedValidate && !tcr.ShowValidate {
 		lines := strings.Split(outputStr, "\n")
-		crossplaneError := lines[len(lines)-1]
-		rest := lines[:len(lines)-1]
 
-		if tcr.ShowValidate {
-			// Show all lines with crossplane error first
-			return fmt.Sprintf("%s\n%s%s", crossplaneError, spaces, strings.Join(rest, "\n"+spaces))
-		}
-
-		// Filter out "validated successfully" lines and show crossplane error first
-		var filtered []string
-
-		for _, line := range rest {
+		filtered := lines[:0]
+		for _, line := range lines {
 			if !strings.HasSuffix(line, "validated successfully") {
 				filtered = append(filtered, line)
 			}
 		}
 
-		return fmt.Sprintf("%s\n%s%s", crossplaneError, spaces, strings.Join(filtered, "\n"+spaces))
+		outputStr = strings.Join(filtered, "\n")
 	}
 
-	// For successful validation, just format with proper indentation
-	return fmt.Sprintf("%sValidation results:\n%s%s", spaces, spaces+spaces, strings.ReplaceAll(outputStr, "\n", "\n"+spaces+spaces))
+	bodyIndent := "\n" + spaces + spaces
+	body := strings.ReplaceAll(outputStr, "\n", bodyIndent)
+
+	return spaces + header + "\n" + spaces + spaces + body + "\n"
 }
 
-// formatHooksOutput formats the hooks output for display
-// Success: shows both stdout and stderr
-// Failure: shows only stdout (stderr goes in error message).
-func (tcr *TestCaseResult) formatHooksOutput(hooksResults []HookResult, label string) string {
+const (
+	symbolPass = "[✓]"
+	symbolFail = "[x]"
+)
+
+// formatHooksOutput formats the hooks output for display for the pre-test or post-test section.
+// label is "pre-test" or "post-test". Returns "" when the section would not be shown.
+// Otherwise returns either all hooks or only failed, based on hasFailed*, Verbose, and ShowHooks.
+func (tcr *TestCaseResult) formatHooksOutput(label string) string {
+	var (
+		results   []HookResult
+		hasFailed bool
+	)
+
+	switch label {
+	case "pre-test":
+		results = tcr.PreTestHooksResults
+		hasFailed = tcr.HasFailedPreTestHooks
+	case "post-test":
+		results = tcr.PostTestHooksResults
+		hasFailed = tcr.HasFailedPostTestHooks
+	default:
+		return ""
+	}
+
+	if len(results) == 0 {
+		return ""
+	}
+
+	if !hasFailed && (!tcr.Verbose || !tcr.ShowHooks) {
+		return ""
+	}
+
+	showAll := !hasFailed || (tcr.Verbose && tcr.ShowHooks)
+
+	return tcr.formatHooksOutputWithShow(results, label, showAll)
+}
+
+// formatHooksOutputWithShow builds the hooks output string. showAll: when true, all hooks; when false, only failed.
+func (tcr *TestCaseResult) formatHooksOutputWithShow(hooksResults []HookResult, label string, showAll bool) string {
+	const (
+		headerPreTest  = "Pre-test Hooks:"
+		headerPostTest = "Post-test Hooks:"
+	)
+
 	if len(hooksResults) == 0 {
 		return ""
 	}
 
-	var lines []string
+	hooks := hooksResults
+	if !showAll {
+		filtered := hooksResults[:0]
+		for i := range hooksResults {
+			if hooksResults[i].Error != nil {
+				filtered = append(filtered, hooksResults[i])
+			}
+		}
 
-	lines = append(lines, fmt.Sprintf("%s%s hooks results:", spaces, label))
+		if len(filtered) == 0 {
+			return ""
+		}
 
-	for _, hook := range hooksResults {
-		// Format hook header (name only if present, otherwise command)
+		hooks = filtered
+	}
+
+	bodyIndent := "\n" + spaces + spaces + spaces
+
+	var out []string
+
+	header := headerPostTest
+	if label == "pre-test" {
+		header = headerPreTest
+	}
+
+	out = append(out, fmt.Sprintf("%s%s", spaces, header))
+
+	for _, hook := range hooks {
+		title := hook.Command
 		if hook.Name != "" {
-			lines = append(lines, fmt.Sprintf("%s- %s", spaces+spaces, hook.Name))
+			title = hook.Name
+		}
+
+		if hook.Error != nil {
+			var exitErr *exec.ExitError
+			if errors.As(hook.Error, &exitErr) {
+				out = append(out, fmt.Sprintf("%s%s %s [exit code: %d]", spaces+spaces, symbolFail, title, exitErr.ExitCode()))
+			} else {
+				// Template/rendering and other non-process failures should show the root cause,
+				// not a synthetic exit code that implies a command executed.
+				out = append(out,
+					fmt.Sprintf("%s%s %s", spaces+spaces, symbolFail, title),
+					fmt.Sprintf("%serror: %s", spaces+spaces+spaces, hook.Error.Error()),
+				)
+			}
 		} else {
-			lines = append(lines, fmt.Sprintf("%s- %s", spaces+spaces, hook.Command))
+			out = append(out, fmt.Sprintf("%s%s %s", spaces+spaces, symbolPass, title))
 		}
 
-		// Add hook output based on success/failure
-		// Always show stdout (both success and failure cases)
-		if len(hook.Stdout) > 0 {
-			stdoutStr := strings.TrimSpace(string(hook.Stdout))
-			if stdoutStr != "" {
-				outputLines := strings.Split(stdoutStr, "\n")
-				for _, line := range outputLines {
-					lines = append(lines, fmt.Sprintf("%s%s", spaces+spaces+spaces, line))
-				}
-			}
-		}
-
-		// Only show stderr for successful hooks (failure stderr goes in error message)
-		if hook.Error == nil && len(hook.Stderr) > 0 {
-			stderrStr := strings.TrimSpace(string(hook.Stderr))
-			if stderrStr != "" {
-				outputLines := strings.Split(stderrStr, "\n")
-				for _, line := range outputLines {
-					lines = append(lines, fmt.Sprintf("%s%s", spaces+spaces+spaces, line))
-				}
-			}
+		if len(hook.Output) != 0 {
+			trimmed := strings.TrimSuffix(string(hook.Output), "\n")
+			indented := strings.ReplaceAll(trimmed, "\n", bodyIndent)
+			out = append(out, spaces+spaces+spaces+indented)
 		}
 	}
 
-	return strings.Join(lines, "\n")
+	return strings.Join(out, "\n") + "\n"
 }
 
-// formatAssertionsOutput formats assertion results for display.
-// When failed is true, formats only failed assertions for error messages (no indentation, as Print() handles it).
-// When failed is false, formats all assertions for verbose output (with indentation).
-func (tcr *TestCaseResult) formatAssertionsOutput(assertionResults []AssertionResult, failed bool) string {
-	if len(assertionResults) == 0 {
+// formatAssertionsOutput formats assertion results for display for the assertions section.
+// Returns "" when the section would not be shown (!hasFailedAssertions && !(Verbose && ShowAssertions)).
+// Otherwise returns either all assertions or only failed, based on hasFailedAssertions, Verbose, and ShowAssertions.
+func (tcr *TestCaseResult) formatAssertionsOutput() string {
+	const header = "Assertions:"
+
+	if !tcr.HasFailedAssertions && (!tcr.Verbose || !tcr.ShowAssertions) {
 		return ""
 	}
 
-	// Pre-allocate: 1 header line + len(assertionResults) item lines
-	lines := make([]string, 0, 1+len(assertionResults))
-
-	var itemIndent string // Indentation for individual assertion items
-
-	if failed {
-		// For error messages: no header indentation (Print() will indent), items get 4 spaces
-		plural := pluralize.NewClient()
-		noun := plural.Pluralize("assertion", len(assertionResults), true)
-		lines = append(lines, fmt.Sprintf("%s failed:", noun))
-		itemIndent = spaces
-	} else {
-		// For verbose output: header gets 4 spaces, items get 8 spaces
-		lines = append(lines, fmt.Sprintf("%sAssertions results:", spaces))
-		itemIndent = spaces + spaces
+	if len(tcr.AssertionsResults) == 0 {
+		return ""
 	}
 
-	for _, result := range assertionResults {
-		lines = append(lines, fmt.Sprintf("%s%s: %s - %s", itemIndent, string(result.Status), result.Name, result.Message))
+	var passCount, failCount int
+
+	for _, r := range tcr.AssertionsResults {
+		if r.Status == StatusPass {
+			passCount++
+		} else {
+			failCount++
+		}
 	}
 
-	return strings.Join(lines, "\n")
+	toList := tcr.AssertionsResults
+
+	if tcr.HasFailedAssertions && (!tcr.Verbose || !tcr.ShowAssertions) {
+		failed := make([]AssertionResult, 0, failCount)
+
+		for _, r := range tcr.AssertionsResults {
+			if r.Status != StatusPass {
+				failed = append(failed, r)
+			}
+		}
+
+		toList = failed
+		if len(toList) == 0 {
+			return ""
+		}
+	}
+
+	lines := make([]string, 0, 2+len(toList))
+	lines = append(lines, fmt.Sprintf("%s%s", spaces, header))
+
+	for _, r := range toList {
+		marker := symbolPass
+		if r.Status == StatusFail {
+			marker = symbolFail
+		}
+
+		lines = append(lines, fmt.Sprintf("%s%s %s - %s", spaces+spaces, marker, r.Name, r.Message))
+	}
+
+	totalLine := fmt.Sprintf("Total: %d assertions, %d successful, %d failed", len(tcr.AssertionsResults), passCount, failCount)
+	lines = append(lines, fmt.Sprintf("%s%s", spaces+spaces, totalLine))
+
+	return strings.Join(lines, "\n") + "\n"
 }
 
 // parseRenderOutput parses the raw render output and returns the resources.
@@ -374,30 +478,57 @@ func (tcr *TestCaseResult) ProcessRenderOutput(output []byte) error {
 
 // ProcessValidateOutput formats the validation raw output.
 // It sets FormattedValidateOutput.
-func (tcr *TestCaseResult) ProcessValidateOutput(output []byte) {
-	tcr.FormattedValidateOutput = tcr.formatValidateOutput(output)
+func (tcr *TestCaseResult) ProcessValidateOutput() {
+	tcr.FormattedValidateOutput = tcr.formatValidateOutput()
 }
 
-// ProcessHooksOutput formats the hooks results.
-// It sets FormattedPreTestHooksOutput and/or FormattedPostTestHooksOutput.
-func (tcr *TestCaseResult) ProcessHooksOutput() {
-	if len(tcr.PreTestHooksResults) > 0 {
-		tcr.FormattedPreTestHooksOutput = tcr.formatHooksOutput(tcr.PreTestHooksResults, "pre-test")
+// ProcessPreTestHooksOutput formats the pre-test hooks results and sets hasFailedPreTestHooks.
+// It sets FormattedPreTestHooksOutput to the single string that will be printed (or "" when section not shown).
+func (tcr *TestCaseResult) ProcessPreTestHooksOutput() {
+	if len(tcr.PreTestHooksResults) == 0 {
+		return
 	}
 
-	if len(tcr.PostTestHooksResults) > 0 {
-		tcr.FormattedPostTestHooksOutput = tcr.formatHooksOutput(tcr.PostTestHooksResults, "post-test")
+	for i := range tcr.PreTestHooksResults {
+		if tcr.PreTestHooksResults[i].Error != nil {
+			tcr.HasFailedPreTestHooks = true
+			break
+		}
 	}
+
+	tcr.FormattedPreTestHooksOutput = tcr.formatHooksOutput("pre-test")
 }
 
-// ProcessAssertionsOutput formats the assertion results.
-// It sets FormattedAssertionsOutput (all assertions) and FormattedAssertionsFailedOutput (failed only).
+// ProcessPostTestHooksOutput formats the post-test hooks results and sets hasFailedPostTestHooks.
+// It sets FormattedPostTestHooksOutput to the single string that will be printed (or "" when section not shown).
+func (tcr *TestCaseResult) ProcessPostTestHooksOutput() {
+	if len(tcr.PostTestHooksResults) == 0 {
+		return
+	}
+
+	for i := range tcr.PostTestHooksResults {
+		if tcr.PostTestHooksResults[i].Error != nil {
+			tcr.HasFailedPostTestHooks = true
+			break
+		}
+	}
+
+	tcr.FormattedPostTestHooksOutput = tcr.formatHooksOutput("post-test")
+}
+
+// ProcessAssertionsOutput formats the assertion results and sets hasFailedAssertions.
+// It sets FormattedAssertionsOutput to the single string that will be printed (all or failed-only, or "" when section not shown).
 func (tcr *TestCaseResult) ProcessAssertionsOutput() {
-	if len(tcr.AssertionsAllResults) > 0 {
-		tcr.FormattedAssertionsOutput = tcr.formatAssertionsOutput(tcr.AssertionsAllResults, false)
+	if len(tcr.AssertionsResults) == 0 {
+		return
 	}
 
-	if len(tcr.AssertionsFailedResults) > 0 {
-		tcr.FormattedAssertionsFailedOutput = tcr.formatAssertionsOutput(tcr.AssertionsFailedResults, true)
+	for i := range tcr.AssertionsResults {
+		if tcr.AssertionsResults[i].Status != StatusPass {
+			tcr.HasFailedAssertions = true
+			break
+		}
 	}
+
+	tcr.FormattedAssertionsOutput = tcr.formatAssertionsOutput()
 }

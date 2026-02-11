@@ -45,20 +45,14 @@ func newAssertionExecutor(fs afero.Fs, outputs *engine.Outputs, debug bool) *ass
 }
 
 // executeAssertions executes all assertions for a test case.
-func (e *assertionExecutor) executeAssertions(assertions []api.Assertion) ([]engine.AssertionResult, []engine.AssertionResult) {
-	assertionsAllResults := make([]engine.AssertionResult, 0, len(assertions))
-	assertionsFailedResults := make([]engine.AssertionResult, 0, len(assertions))
-
+func (e *assertionExecutor) executeAssertions(assertions []api.Assertion) []engine.AssertionResult {
+	results := make([]engine.AssertionResult, 0, len(assertions))
 	for _, assertion := range assertions {
 		assertionResult, _ := e.executeAssertion(assertion)
-
-		assertionsAllResults = append(assertionsAllResults, assertionResult)
-		if assertionResult.Status == engine.StatusFail {
-			assertionsFailedResults = append(assertionsFailedResults, assertionResult)
-		}
+		results = append(results, assertionResult)
 	}
 
-	return assertionsAllResults, assertionsFailedResults
+	return results
 }
 
 // executeAssertion executes a single assertion.

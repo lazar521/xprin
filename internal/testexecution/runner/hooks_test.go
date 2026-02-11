@@ -55,13 +55,13 @@ func TestExecuteHooks(t *testing.T) {
 	// Mock the runCommand function
 	var executedCommands []string
 
-	runCommand := func(_ string, args ...string) ([]byte, []byte, error) {
+	runCommand := func(_ string, args ...string) ([]byte, error) {
 		// Extract just the command part (skip the shell and -c flags)
 		if len(args) >= 2 && args[0] == "-c" {
 			executedCommands = append(executedCommands, args[1])
 		}
 
-		return []byte("mock output"), []byte(""), nil
+		return []byte("mock output"), nil
 	}
 
 	// Mock renderTemplate function (should not be called for pre-test hooks without placeholders)
@@ -94,13 +94,13 @@ func TestExecuteHooks_Order(t *testing.T) {
 	// Mock the runCommand function to capture execution order
 	var executionOrder []string
 
-	runCommand := func(_ string, args ...string) ([]byte, []byte, error) {
+	runCommand := func(_ string, args ...string) ([]byte, error) {
 		// Extract just the command part (skip the shell and -c flags)
 		if len(args) >= 2 && args[0] == "-c" {
 			executionOrder = append(executionOrder, args[1])
 		}
 
-		return []byte("mock output"), []byte(""), nil
+		return []byte("mock output"), nil
 	}
 
 	renderTemplate := func(content string, _ *templateContext, _ string) (string, error) {
@@ -136,8 +136,8 @@ func TestExecuteHooks_HookFailure(t *testing.T) {
 		}
 
 		// Mock the runCommand function to return an error
-		runCommand := func(_ string, _ ...string) ([]byte, []byte, error) {
-			return []byte(""), []byte("command failed"), errors.New("exit status 1")
+		runCommand := func(_ string, _ ...string) ([]byte, error) {
+			return []byte("command failed"), errors.New("exit status 1")
 		}
 
 		renderTemplate := func(content string, _ *templateContext, _ string) (string, error) {
@@ -161,8 +161,8 @@ func TestExecuteHooks_HookFailure(t *testing.T) {
 		}
 
 		// Mock the runCommand function to return an error
-		runCommand := func(_ string, _ ...string) ([]byte, []byte, error) {
-			return []byte(""), []byte("another error"), errors.New("exit status 2")
+		runCommand := func(_ string, _ ...string) ([]byte, error) {
+			return []byte("another error"), errors.New("exit status 2")
 		}
 
 		renderTemplate := func(content string, _ *templateContext, _ string) (string, error) {
@@ -177,31 +177,6 @@ func TestExecuteHooks_HookFailure(t *testing.T) {
 		// Validate error message format (should contain the key components)
 		assert.Contains(t, err.Error(), "pre-test hook failed with exit code")
 		assert.Contains(t, err.Error(), "another error")
-	})
-
-	t.Run("hook with multiline stderr", func(t *testing.T) {
-		// Create hooks
-		hooks := []api.Hook{
-			{Name: "multiline-hook", Run: "echo 'line1' && echo 'line2' && exit 3"},
-		}
-
-		// Mock the runCommand function to return multiline stderr
-		runCommand := func(_ string, _ ...string) ([]byte, []byte, error) {
-			return []byte(""), []byte("line1\nline2\nfinal error"), errors.New("exit status 3")
-		}
-
-		renderTemplate := func(content string, _ *templateContext, _ string) (string, error) {
-			return content, nil
-		}
-
-		// Execute hooks - should fail
-		hookExecutor := newHookExecutor(nil, false, runCommand, renderTemplate)
-		_, err := hookExecutor.executeHooks(hooks, "post-test", api.Inputs{}, nil, map[string]*engine.TestCaseResult{})
-		require.Error(t, err)
-
-		// Validate that multiline stderr is properly indented and contains key components
-		assert.Contains(t, err.Error(), "post-test hook 'multiline-hook' failed with exit code")
-		assert.Contains(t, err.Error(), "line1\n    line2\n    final error")
 	})
 }
 
@@ -231,13 +206,13 @@ func TestExecuteHooks_PostTestHooks(t *testing.T) {
 	// Mock the runCommand function
 	var executedCommands []string
 
-	runCommand := func(_ string, args ...string) ([]byte, []byte, error) {
+	runCommand := func(_ string, args ...string) ([]byte, error) {
 		// Extract just the command part (skip the shell and -c flags)
 		if len(args) >= 2 && args[0] == "-c" {
 			executedCommands = append(executedCommands, args[1])
 		}
 
-		return []byte("mock output"), []byte(""), nil
+		return []byte("mock output"), nil
 	}
 
 	// Mock renderTemplate function to process template variables using Go templates
@@ -301,12 +276,12 @@ func TestExecuteHooks_PreTestHooks_InputsTemplateVariables(t *testing.T) {
 	// Mock the runCommand function
 	var executedCommands []string
 
-	runCommand := func(_ string, args ...string) ([]byte, []byte, error) {
+	runCommand := func(_ string, args ...string) ([]byte, error) {
 		if len(args) >= 2 && args[0] == "-c" {
 			executedCommands = append(executedCommands, args[1])
 		}
 
-		return []byte("mock output"), []byte(""), nil
+		return []byte("mock output"), nil
 	}
 
 	renderTemplate := func(content string, _ *templateContext, _ string) (string, error) {
@@ -342,12 +317,12 @@ func TestExecuteHooks_PreTestHooks_WithoutTemplateVariables(t *testing.T) {
 
 	var executedCommands []string
 
-	runCommand := func(_ string, args ...string) ([]byte, []byte, error) {
+	runCommand := func(_ string, args ...string) ([]byte, error) {
 		if len(args) >= 2 && args[0] == "-c" {
 			executedCommands = append(executedCommands, args[1])
 		}
 
-		return []byte("mock output"), []byte(""), nil
+		return []byte("mock output"), nil
 	}
 
 	renderTemplate := func(content string, _ *templateContext, _ string) (string, error) {
@@ -382,8 +357,8 @@ func TestExecuteHooks_PreTestHooks_OutputsTemplateVariables(t *testing.T) {
 		{Name: "pre-hook-with-outputs", Run: fmt.Sprintf("echo 'Outputs XR: %s.Outputs.XR%s'", testexecutionUtils.PlaceholderOpen, testexecutionUtils.PlaceholderClose)},
 	}
 
-	runCommand := func(_ string, _ ...string) ([]byte, []byte, error) {
-		return []byte("mock output"), []byte(""), nil
+	runCommand := func(_ string, _ ...string) ([]byte, error) {
+		return []byte("mock output"), nil
 	}
 
 	// Mock renderTemplate to simulate nil pointer error
@@ -444,12 +419,12 @@ func TestExecuteHooks_PostTestHooks_InputsAndOutputsTemplateVariables(t *testing
 	// Mock the runCommand function
 	var executedCommands []string
 
-	runCommand := func(_ string, args ...string) ([]byte, []byte, error) {
+	runCommand := func(_ string, args ...string) ([]byte, error) {
 		if len(args) >= 2 && args[0] == "-c" {
 			executedCommands = append(executedCommands, args[1])
 		}
 
-		return []byte("mock output"), []byte(""), nil
+		return []byte("mock output"), nil
 	}
 
 	// Mock renderTemplate to process template variables using Go templates
@@ -506,13 +481,13 @@ func TestExecuteHooks_WorkingDirectory(t *testing.T) {
 	// We don't need to actually run the command - just verify cmd.Dir is set
 	var capturedDir string
 
-	runner.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+	runner.runCommand = func(name string, args ...string) ([]byte, error) {
 		cmd := exec.Command(name, args...)
 		// Set Dir the same way the original does
 		cmd.Dir = runner.testSuiteFileDir
 		capturedDir = cmd.Dir
 		// Return without running to avoid filesystem I/O
-		return []byte{}, []byte{}, nil
+		return []byte{}, nil
 	}
 
 	// Create a simple hook for testing

@@ -142,7 +142,7 @@ ok	examples/mytests/1_simple_tests/example1_using-xr_xprin.yaml	0.906s
 ➜ xprin test examples/mytests/1_simple_tests/example1_using-xr_xprin.yaml -v --show-render
 === RUN   Initial reconciliation loop (using XR)
 --- PASS: Initial reconciliation loop (using XR) (0.76s)
-    Rendered resources:
+    Render:
         ├── XAWSInfrastructure/platform-aws
         └── SecurityGroup/platform-aws-sg
 PASS
@@ -222,7 +222,7 @@ ok      examples/mytests/1_simple_tests/example2_using-claim_xprin.yaml 0.904s
 ➜ xprin test examples/mytests/1_simple_tests/example2_using-claim_xprin.yaml -v --show-render --show-validate
 === RUN   Initial reconciliation loop (using Claim)
 --- PASS: Initial reconciliation loop (using Claim) (0.76s)
-    Rendered resources:
+    Render:
         ├── XAWSInfrastructure/platform-aws-wg9vx
         └── SecurityGroup/platform-aws-wg9vx-sg
 PASS
@@ -294,10 +294,10 @@ ok	examples/mytests/1_simple_tests/example3_validate_xprin.yaml	1.572s
 ```
 === RUN   Initial reconciliation loop (runs both render and validate)
 --- PASS: Initial reconciliation loop (runs both render and validate) (1.33s)
-    Rendered resources:
+    Render:
         ├── XAWSInfrastructure/platform-aws
         └── SecurityGroup/platform-aws-sg
-    Validation results:
+    Validate:
         [✓] demo.aws.example.com/v1, Kind=XAWSInfrastructure, platform-aws validated successfully
         [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-aws-sg validated successfully
         Total 2 resources: 0 missing schemas, 2 success cases, 0 failure cases
@@ -330,20 +330,20 @@ xprin test examples/mytests/2_multiple_testcases/example1_multiple-reconciliatio
 ➜ xprin test examples/mytests/2_multiple_testcases/example1_multiple-reconciliation-loops_xprin.yaml -v --show-render --show-validate
 === RUN   Initial reconciliation loop
 --- PASS: Initial reconciliation loop (1.32s)
-    Rendered resources:
+    Render:
         ├── XAWSInfrastructure/platform-aws
         └── SecurityGroup/platform-aws-sg
-    Validation results:
+    Validate:
         [✓] demo.aws.example.com/v1, Kind=XAWSInfrastructure, platform-aws validated successfully
         [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-aws-sg validated successfully
         Total 2 resources: 0 missing schemas, 2 success cases, 0 failure cases
 === RUN   Second reconciliation loop
 --- PASS: Second reconciliation loop (1.35s)
-    Rendered resources:
+    Render:
         ├── XAWSInfrastructure/platform-aws
         ├── Cluster/platform-aws-rds
         └── SecurityGroup/platform-aws-sg
-    Validation results:
+    Validate:
         [✓] demo.aws.example.com/v1, Kind=XAWSInfrastructure, platform-aws validated successfully
         [✓] rds.aws.upbound.io/v1beta1, Kind=Cluster, platform-aws-rds validated successfully
         [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-aws-sg validated successfully
@@ -373,20 +373,20 @@ xprin test examples/mytests/2_multiple_testcases/example2_multiple-reconciliatio
 ➜ xprin test examples/mytests/2_multiple_testcases/example2_multiple-reconciliation-loops-using-common_xprin.yaml -v --show-render --show-validate
 === RUN   Initial reconciliation loop
 --- PASS: Initial reconciliation loop (1.29s)
-    Rendered resources:
+    Render:
         ├── XAWSInfrastructure/platform-aws
         └── SecurityGroup/platform-aws-sg
-    Validation results:
+    Validate:
         [✓] demo.aws.example.com/v1, Kind=XAWSInfrastructure, platform-aws validated successfully
         [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-aws-sg validated successfully
         Total 2 resources: 0 missing schemas, 2 success cases, 0 failure cases
 === RUN   Second reconciliation loop
 --- PASS: Second reconciliation loop (1.43s)
-    Rendered resources:
+    Render:
         ├── XAWSInfrastructure/platform-aws
         ├── Cluster/platform-aws-rds
         └── SecurityGroup/platform-aws-sg
-    Validation results:
+    Validate:
         [✓] demo.aws.example.com/v1, Kind=XAWSInfrastructure, platform-aws validated successfully
         [✓] rds.aws.upbound.io/v1beta1, Kind=Cluster, platform-aws-rds validated successfully
         [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-aws-sg validated successfully
@@ -422,19 +422,20 @@ This example demonstrates how to use `patches.xrd` to apply default values from 
 ➜ xprin test examples/mytests/3_patch_xr/example1_patch-xr-xrd-defaults_xprin.yaml -v --show-render --show-validate
 === RUN   Validation fails without XRD defaults
 --- FAIL: Validation fails without XRD defaults (1.57s)
-    Rendered resources:
+    Render:
         ├── XAWSInfrastructure/platform-aws
         └── SecurityGroup/platform-aws-sg
-    crossplane: error: cannot validate resources: could not validate all resources
+    Validate:
         [x] schema validation error aws.example.com/v1, Kind=XAWSInfrastructure, platform-aws : spec.team: Required value
         [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-aws-sg validated successfully
         Total 2 resources: 0 missing schemas, 1 success cases, 1 failure cases
+        crossplane: error: cannot validate resources: could not validate all resources
 === RUN   Validation passes with XRD defaults applied
 --- PASS: Validation passes with XRD defaults applied (1.32s)
-    Rendered resources:
+    Render:
         ├── XAWSInfrastructure/platform-aws
         └── SecurityGroup/platform-aws-sg
-    Validation results:
+    Validate:
         [✓] aws.example.com/v1, Kind=XAWSInfrastructure, platform-aws validated successfully
         [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-aws-sg validated successfully
         Total 2 resources: 0 missing schemas, 2 success cases, 0 failure cases
@@ -469,18 +470,18 @@ xprin test examples/mytests/4_hooks/example1_hooks_xprin.yaml -v --show-hooks
 ➜ xprin test examples/mytests/4_hooks/example1_hooks_xprin.yaml -v --show-hooks
 === RUN   Test with pre-test and post-test hooks
 --- PASS: Test with pre-test and post-test hooks (1.29s)
-    pre-test hooks results:
-        - Prepare test environment
+    Pre-test Hooks:
+        [✓] Prepare test environment
             Setting up test environment...
-        - Multiline hook
+        [✓] Multiline hook
             first line
             second line
-        - echo "Pre-test hook without name"
+        [✓] echo "Pre-test hook without name"
             Pre-test hook without name
-    post-test hooks results:
-        - echo "Post-test hook without name"
+    Post-test Hooks:
+        [✓] echo "Post-test hook without name"
             Post-test hook without name
-        - Cleanup
+        [✓] Cleanup
             Cleaning up test environment...
 PASS
 ok	examples/mytests/4_hooks/example1_hooks_xprin.yaml	1.289s
@@ -509,26 +510,26 @@ xprin test examples/mytests/4_hooks/example2_pre-test-hooks_xprin.yaml -v --show
 ➜ xprin test examples/mytests/4_hooks/example2_pre-test-hooks_xprin.yaml -v --show-render --show-validate --show-hooks
 === RUN   Without modifying XR status
 --- PASS: Without modifying XR status (1.34s)
-    Rendered resources:
+    Render:
         ├── XAWSInfrastructure/platform-aws
         └── SecurityGroup/platform-aws-sg
-    Validation results:
+    Validate:
         [✓] aws.example.com/v1, Kind=XAWSInfrastructure, platform-aws validated successfully
         [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-aws-sg validated successfully
         Total 2 resources: 0 missing schemas, 2 success cases, 0 failure cases
 === RUN   With XR status modified in pre-test hook
 --- PASS: With XR status modified in pre-test hook (1.38s)
-    pre-test hooks results:
-        - Show XR path
+    Pre-test Hooks:
+        [✓] Show XR path
             /var/folders/st/_skftlwn3bb8z_vk249n6qy80000gn/T/xprin-testcase-.../inputs/xr/xr.yaml
-        - Show Composition path
+        [✓] Show Composition path
             /var/folders/st/_skftlwn3bb8z_vk249n6qy80000gn/T/xprin-testcase-.../inputs/composition/composition.yaml
-        - Set RDS status in XR
-    Rendered resources:
+        [✓] Set RDS status in XR
+    Render:
         ├── XAWSInfrastructure/platform-aws
         ├── Instance/platform-aws-ec2
         └── SecurityGroup/platform-aws-sg
-    Validation results:
+    Validate:
         [✓] aws.example.com/v1, Kind=XAWSInfrastructure, platform-aws validated successfully
         [✓] ec2.aws.upbound.io/v1beta1, Kind=Instance, platform-aws-ec2 validated successfully
         [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-aws-sg validated successfully
@@ -563,22 +564,22 @@ xprin test examples/mytests/4_hooks/example3_post-test-hooks_xprin.yaml -v --sho
 ➜ xprin test examples/mytests/4_hooks/example3_post-test-hooks_xprin.yaml -v --show-hooks
 === RUN   Initial reconciliation loop
 --- PASS: Initial reconciliation loop (1.46s)
-    post-test hooks results:
-        - Inspect XR status
+    Post-test Hooks:
+        [✓] Inspect XR status
             conditions:
               - lastTransitionTime: "2024-01-01T00:00:00Z"
                 message: 'Unready resources: sg'
                 reason: Creating
                 status: "False"
                 type: Ready
-        - Show render count
+        [✓] Show render count
             2
-        - Show render output path
+        [✓] Show render output path
             /var/folders/st/_skftlwn3bb8z_vk249n6qy80000gn/T/xprin-testcase-204705582/outputs/rendered.yaml
-        - Show specific rendered resource
+        [✓] Show specific rendered resource
             /var/folders/st/_skftlwn3bb8z_vk249n6qy80000gn/T/xprin-testcase-204705582/outputs/rendered-securitygroup-platform-aws-sg.yaml
-        - Compare input and output XRs
-            _        __  __
+        [✓] Compare input and output XRs
+                 _        __  __
                _| |_   _ / _|/ _|  between /var/folders/st/_skftlwn3bb8z_vk249n6qy80000gn/T/xprin-testcase-204705582/inputs/xr/xr.yaml
              / _' | | | | |_| |_       and /var/folders/st/_skftlwn3bb8z_vk249n6qy80000gn/T/xprin-testcase-204705582/outputs/xr.yaml
             | (_| | |_| |  _|  _|
@@ -594,6 +595,7 @@ xprin test examples/mytests/4_hooks/example3_post-test-hooks_xprin.yaml -v --sho
                   message: "Unready resources: sg"
                   reason: Creating
                   status: False
+            
 PASS
 ok	examples/mytests/4_hooks/example3_post-test-hooks_xprin.yaml	1.464s
 ```
@@ -629,20 +631,20 @@ xprin test examples/mytests/5_chained_tests/example1_chained-test-outputs_xprin.
 
 === RUN   Initial reconciliation loop
 --- PASS: Initial reconciliation loop (1.33s)
-    Rendered resources:
+    Render:
         ├── XAWSInfrastructure/platform-aws
         └── SecurityGroup/platform-aws-sg
-    Validation results:
+    Validate:
         [✓] aws.example.com/v1, Kind=XAWSInfrastructure, platform-aws validated successfully
         [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-aws-sg validated successfully
         Total 2 resources: 0 missing schemas, 2 success cases, 0 failure cases
 === RUN   Second reconciliation loop
 --- PASS: Second reconciliation loop (1.34s)
-    Rendered resources:
+    Render:
         ├── XAWSInfrastructure/platform-aws
         ├── Cluster/platform-aws-rds
         └── SecurityGroup/platform-aws-sg
-    Validation results:
+    Validate:
         [✓] aws.example.com/v1, Kind=XAWSInfrastructure, platform-aws validated successfully
         [✓] rds.aws.upbound.io/v1beta1, Kind=Cluster, platform-aws-rds validated successfully
         [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-aws-sg validated successfully
@@ -674,12 +676,12 @@ This example demonstrates cross-composition chaining, where one composition rend
 
 === RUN   Base layer final loop
 --- PASS: Base layer final loop (0.86s)
-    Rendered resources:
+    Render:
         ├── XBaseInfrastructure/platform-base
         ├── XAWSInfrastructure/platform-base-aws
         ├── XGCPInfrastructure/platform-base-gcp
         └── Object/platform-base-base-namespace
-    Validation results:
+    Validate:
         [✓] base.example.com/v1, Kind=XBaseInfrastructure, platform-base validated successfully
         [✓] aws.example.com/v1, Kind=XAWSInfrastructure, platform-base-aws validated successfully
         [✓] gcp.example.com/v1, Kind=XGCPInfrastructure, platform-base-gcp validated successfully
@@ -687,10 +689,10 @@ This example demonstrates cross-composition chaining, where one composition rend
         Total 4 resources: 0 missing schemas, 4 success cases, 0 failure cases
 === RUN   AWS layer first loop
 --- PASS: AWS layer first loop (1.28s)
-    Rendered resources:
+    Render:
         ├── XAWSInfrastructure/platform-base-aws
         └── SecurityGroup/platform-base-aws-sg
-    Validation results:
+    Validate:
         [✓] aws.example.com/v1, Kind=XAWSInfrastructure, platform-base-aws validated successfully
         [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-base-aws-sg validated successfully
         Total 2 resources: 0 missing schemas, 2 success cases, 0 failure cases
@@ -741,37 +743,23 @@ xprin test examples/mytests/6_assertions/example1_assertions_xprin.yaml -v --sho
 ➜ xprin test examples/mytests/6_assertions/example1_assertions_xprin.yaml -v --show-assertions
 === RUN   Second reconciliation loop
 --- PASS: Second reconciliation loop (1.45s)
-    Assertion results:
-        [✓] Number of resources
-            found 3 resources (as expected)
-        [✓] SecurityGroup should exist
-            resource SecurityGroup/platform-aws-sg found
-        [✓] RDS should exist
-            resource Cluster/platform-aws-rds found
-        [✓] EC2 should not exist
-            resource EC2/platform-aws-ec2 not found (as expected)
-        [✓] No EC2 instances should exist
-            no resources of kind EC2 found (as expected)
-        [✓] SecurityGroup should have a name
-            field metadata.name exists
-        [✓] RDS should not have deprecated field
-            field spec.deprecatedField does not exist (as expected)
-        [✓] SecurityGroup description should be string
-            field spec.forProvider.description is string (as expected)
-        [✓] RDS port should be number
-            field spec.forProvider.port is number (as expected)
-        [✓] SecurityGroup vpcSecurityGroupIds should be array
-            field spec.forProvider.vpcSecurityGroupIds is array (as expected)
-        [✓] SecurityGroup metadata labels should be object
-            field metadata.labels is object (as expected)
-        [✓] Example boolean field check
-            field spec.forProvider.enableDnsHostnames is boolean (as expected)
-        [✓] Example null field check
-            field spec.forProvider.finalSnapshotIdentifier is null (as expected)
-        [✓] RDS should be Aurora PostgreSQL
-            field spec.forProvider.engine is aurora-postgresql, expected is aurora-postgresql
-        [✓] SecurityGroup port should equal 443
-            field spec.forProvider.port is 443, expected == 443
+    Assertions:
+        [✓] Number of resources - found 3 resources (as expected)
+        [✓] SecurityGroup should exist - resource SecurityGroup/platform-aws-sg found
+        [✓] RDS should exist - resource Cluster/platform-aws-rds found
+        [✓] EC2 should not exist - resource EC2/platform-aws-ec2 not found (as expected)
+        [✓] No EC2 instances should exist - no resources of kind EC2 found (as expected)
+        [✓] SecurityGroup should have a name - field metadata.name exists
+        [✓] RDS should not have deprecated field - field spec.deprecatedField does not exist (as expected)
+        [✓] SecurityGroup description should be string - field spec.forProvider.description has expected type string
+        [✓] RDS port should be number - field spec.forProvider.port has expected type number
+        [✓] SecurityGroup vpcSecurityGroupIds should be array - field spec.forProvider.vpcSecurityGroupIds has expected type array
+        [✓] SecurityGroup metadata labels should be object - field metadata.labels has expected type object
+        [✓] Example boolean field check - field spec.forProvider.enableDnsHostnames has expected type boolean
+        [✓] Example null field check - field spec.forProvider.finalSnapshotIdentifier has expected type null
+        [✓] RDS should be Aurora PostgreSQL - field spec.forProvider.engine is aurora-postgresql, expected is aurora-postgresql
+        [✓] SecurityGroup port should equal 443 - field spec.forProvider.port is 443, expected == 443
+        Total: 15 assertions, 15 successful, 0 failed
 PASS
 ok	examples/mytests/6_assertions/example1_assertions_xprin.yaml	1.450s
 ```

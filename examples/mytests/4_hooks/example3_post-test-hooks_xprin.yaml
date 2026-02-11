@@ -18,4 +18,4 @@ tests:
     - name: "Show specific rendered resource"
       run: echo {{ index .Outputs.Rendered "SecurityGroup/platform-aws-sg" }}
     - name: "Compare input and output XRs"
-      run: dyff between {{ .Inputs.XR }} {{ .Outputs.XR }}
+      run: dyff between -s {{ .Inputs.XR }} {{ .Outputs.XR }}

@@ -55,7 +55,7 @@ type Runner struct {
 	runTestCaseFunc                   func(api.TestCase) *engine.TestCaseResult
 	expandPathRelativeToTestSuiteFile func(base, path string) (string, error)
 	verifyPathExists                  func(path string) error
-	runCommand                        func(name string, args ...string) ([]byte, []byte, error)
+	runCommand                        func(name string, args ...string) ([]byte, error)
 	copy                              func(src, dest string, opts ...cp.Options) error
 	convertClaimToXRFunc              func(r *Runner, claimPath, outputPath string) (string, error)
 	patchXRFunc                       func(r *Runner, xrPath, outputPath string, patches api.Patches) (string, error)
@@ -88,17 +88,17 @@ func NewRunner(options *testexecutionUtils.Options, testSuiteFile string, testSu
 		runTestCaseFunc:                   nil, // will set default below
 		expandPathRelativeToTestSuiteFile: testexecutionUtils.ExpandPathRelativeToTestSuiteFile,
 		verifyPathExists:                  utils.VerifyPathExists,
-		runCommand: func(name string, args ...string) ([]byte, []byte, error) {
+		runCommand: func(name string, args ...string) ([]byte, error) {
 			cmd := exec.Command(name, args...)
 			cmd.Dir = testSuiteFileDir
 
-			var stdout, stderr bytes.Buffer
+			var combined bytes.Buffer
 
-			cmd.Stdout = &stdout
-			cmd.Stderr = &stderr
+			cmd.Stdout = &combined
+			cmd.Stderr = &combined
 			err := cmd.Run()
 
-			return stdout.Bytes(), stderr.Bytes(), err
+			return combined.Bytes(), err
 		},
 		copy:                 cp.Copy,
 		convertClaimToXRFunc: (*Runner).convertClaimToXR,
@@ -491,11 +491,10 @@ func (r *Runner) runTestCase(testCase api.TestCase, testSuiteResult *engine.Test
 		hookExecutor := newHookExecutor(r.Repositories, r.Debug, r.runCommand, r.renderTemplate)
 
 		result.PreTestHooksResults, err = hookExecutor.executeHooks(testCase.Hooks.PreTest, "pre-test", testCase.Inputs, nil, testSuiteResult.GetCompletedTests())
-		// Format hooks output once
-		result.ProcessHooksOutput()
+		result.ProcessPreTestHooksOutput()
 
 		if err != nil {
-			return result.Fail(err)
+			return result.Fail(nil)
 		}
 	}
 
@@ -557,18 +556,10 @@ func (r *Runner) runTestCase(testCase api.TestCase, testSuiteResult *engine.Test
 		utils.DebugPrintf("Running render command: %s %s\n", r.Dependencies["crossplane"], strings.Join(renderArgs, " "))
 	}
 
-	stdout, stderr, err := r.runCommand(r.Dependencies["crossplane"], renderArgs...)
+	result.RawRenderOutput, err = r.runCommand(r.Dependencies["crossplane"], renderArgs...)
 	if err != nil {
-		// For render, we want to show the combined output in the error
-		combinedOutput := make([]byte, 0, len(stdout)+len(stderr))
-		combinedOutput = append(combinedOutput, stdout...)
-		combinedOutput = append(combinedOutput, stderr...)
-		result.RawRenderOutput = combinedOutput
-
 		return result.FailRender()
 	}
-
-	result.RawRenderOutput = stdout
 
 	// Write rendered output to the outputs directory
 	result.Outputs.Render = filepath.Join(r.outputsDir, "rendered.yaml")
@@ -634,20 +625,12 @@ func (r *Runner) runTestCase(testCase api.TestCase, testSuiteResult *engine.Test
 			utils.DebugPrintf("Running validate command: %s %s\n", r.Dependencies["crossplane"], strings.Join(validateArgs, " "))
 		}
 
-		stdout, stderr, err := r.runCommand(r.Dependencies["crossplane"], validateArgs...)
+		result.RawValidateOutput, err = r.runCommand(r.Dependencies["crossplane"], validateArgs...)
 		if err != nil {
-			// Mark validation as failed and get formatted error, but continue to post-test hooks
-			combinedOutput := make([]byte, 0, len(stdout)+len(stderr))
-			combinedOutput = append(combinedOutput, stdout...)
-			combinedOutput = append(combinedOutput, stderr...)
-			result.RawValidateOutput = combinedOutput
-
-			finalError = append(finalError, result.MarkValidateFailed().Error())
-		} else {
-			result.RawValidateOutput = stdout
+			_ = result.MarkValidateFailed()
 		}
 
-		result.ProcessValidateOutput(result.RawValidateOutput)
+		result.ProcessValidateOutput()
 
 		// Write validation output to the outputs directory
 		validateOutputFile := filepath.Join(r.outputsDir, "validate.yaml")
@@ -675,13 +658,13 @@ func (r *Runner) runTestCase(testCase api.TestCase, testSuiteResult *engine.Test
 		assertionExecutor := newAssertionExecutor(r.fs, &result.Outputs, r.Debug)
 
 		// Store assertion results in test case result
-		result.AssertionsAllResults, result.AssertionsFailedResults = assertionExecutor.executeAssertions(testCase.Assertions.Xprin)
+		result.AssertionsResults = assertionExecutor.executeAssertions(testCase.Assertions.Xprin)
 
-		// Format assertions output once
+		// Format assertions output and set hasFailedAssertions
 		result.ProcessAssertionsOutput()
 
-		if len(result.AssertionsFailedResults) > 0 {
-			finalError = append(finalError, result.MarkAssertionsFailed().Error())
+		if result.HasFailedAssertions {
+			_ = result.MarkAssertionsFailed()
 		}
 
 		if r.Debug {
@@ -693,14 +676,9 @@ func (r *Runner) runTestCase(testCase api.TestCase, testSuiteResult *engine.Test
 	if testCase.HasPostTestHooks() {
 		hookExecutor := newHookExecutor(r.Repositories, r.Debug, r.runCommand, r.renderTemplate)
 
-		result.PostTestHooksResults, err = hookExecutor.executeHooks(testCase.Hooks.PostTest, "post-test", testCase.Inputs, &result.Outputs, testSuiteResult.GetCompletedTests())
-		// Format hooks output once
-		result.ProcessHooksOutput()
-
-		if err != nil {
-			// Store hook error but continue execution
-			finalError = append(finalError, err.Error())
-		}
+		result.PostTestHooksResults, _ = hookExecutor.executeHooks(testCase.Hooks.PostTest, "post-test", testCase.Inputs, &result.Outputs, testSuiteResult.GetCompletedTests())
+		result.ProcessPostTestHooksOutput()
+		// On post-test hook failure, section shows failed hooks; HasPipelineFailure() is true from results
 	}
 
 	// Copy outputs to testsuite artifacts directory
@@ -729,9 +707,13 @@ func (r *Runner) runTestCase(testCase api.TestCase, testSuiteResult *engine.Test
 		}
 	}
 
-	// Check for any errors and fail if any exist
+	// Fail with infrastructure/non-section errors if any; otherwise fail with nil when pipeline failed
 	if len(finalError) > 0 {
 		return result.Fail(fmt.Errorf("%s", strings.Join(finalError, "\n")))
+	}
+
+	if result.HasPipelineFailure() {
+		return result.Fail(nil)
 	}
 
 	// Complete the test case result

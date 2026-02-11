@@ -32,7 +32,7 @@ import (
 type hookExecutor struct {
 	repositories   map[string]string
 	debug          bool
-	runCommand     func(name string, args ...string) ([]byte, []byte, error)
+	runCommand     func(name string, args ...string) ([]byte, error)
 	renderTemplate func(content string, templateContext *templateContext, templateName string) (string, error)
 }
 
@@ -40,7 +40,7 @@ type hookExecutor struct {
 func newHookExecutor(
 	repositories map[string]string,
 	debug bool,
-	runCommand func(name string, args ...string) ([]byte, []byte, error),
+	runCommand func(name string, args ...string) ([]byte, error),
 	renderTemplate func(content string, templateContext *templateContext, templateName string) (string, error),
 ) *hookExecutor {
 	return &hookExecutor{
@@ -52,8 +52,6 @@ func newHookExecutor(
 }
 
 // executeHooks executes a list of hook commands and returns the combined output.
-//
-//nolint:gocognit // TODO: split into helpers in a follow-up (with assertions for consistency)
 func (e *hookExecutor) executeHooks(hooks []api.Hook, hookType string, inputs api.Inputs, outputs *engine.Outputs, tests map[string]*engine.TestCaseResult) ([]engine.HookResult, error) {
 	hookResults := make([]engine.HookResult, 0, len(hooks))
 
@@ -73,7 +71,7 @@ func (e *hookExecutor) executeHooks(hooks []api.Hook, hookType string, inputs ap
 			if err != nil {
 				// Create HookResult for template rendering failure (for consistency with command execution failures)
 				templateErr := fmt.Errorf("failed to render hook template: %w", err)
-				hookResult := engine.NewHookResult(hook.Name, hook.Run, nil, nil, templateErr)
+				hookResult := engine.NewHookResult(hook.Name, hook.Run, nil, templateErr)
 				hookResults = append(hookResults, hookResult)
 
 				// Create error message similar to command execution failures
@@ -96,19 +94,13 @@ func (e *hookExecutor) executeHooks(hooks []api.Hook, hookType string, inputs ap
 			}
 		}
 
-		stdout, stderr, err := e.runCommand("sh", "-c", finalCommand)
+		output, err := e.runCommand("sh", "-c", finalCommand)
 
 		// Use original hook for the result (to preserve original command in error messages)
-		hookResult := engine.NewHookResult(hook.Name, hook.Run, stdout, stderr, err)
+		hookResult := engine.NewHookResult(hook.Name, hook.Run, output, err)
 		hookResults = append(hookResults, hookResult)
 
 		if err != nil {
-			stderrStr := strings.TrimSpace(string(stderr))
-			// Indent multiline stderr output for better readability
-			if strings.Contains(stderrStr, "\n") {
-				stderrStr = strings.ReplaceAll(stderrStr, "\n", "\n    ")
-			}
-
 			exitCode := 1
 
 			var exitError *exec.ExitError
@@ -119,16 +111,12 @@ func (e *hookExecutor) executeHooks(hooks []api.Hook, hookType string, inputs ap
 			var errorMsg string
 			if hook.Name != "" {
 				errorMsg = fmt.Sprintf("%s hook '%s' failed with exit code %d", hookType, hook.Name, exitCode)
-				if stderrStr != "" {
-					errorMsg = fmt.Sprintf("%s: %s", errorMsg, stderrStr)
-				}
 			} else {
 				errorMsg = fmt.Sprintf("%s hook failed with exit code %d", hookType, exitCode)
-				if stderrStr != "" {
-					errorMsg = fmt.Sprintf("%s: %s", errorMsg, stderrStr)
-				} else {
-					errorMsg = fmt.Sprintf("%s: %s", errorMsg, hook.Run)
-				}
+			}
+
+			if len(output) != 0 {
+				errorMsg = fmt.Sprintf("%s: %s", errorMsg, string(output))
 			}
 
 			return hookResults, errors.New(errorMsg)
