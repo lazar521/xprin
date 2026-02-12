@@ -176,21 +176,18 @@ func TestNewRunner_SetsWorkingDirectory(t *testing.T) {
 	// Verify that runCommand sets cmd.Dir correctly by capturing it
 	var capturedDir string
 
-	runner.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+	runner.runCommand = func(name string, args ...string) ([]byte, error) {
 		cmd := exec.Command(name, args...)
 		// The original runCommand sets cmd.Dir = testSuiteFileDir (captured in closure)
 		// We verify this by checking that the closure has access to the correct value
 		cmd.Dir = runner.testSuiteFileDir
 		capturedDir = cmd.Dir
 
-		return []byte{}, []byte{}, nil
+		return []byte{}, nil
 	}
 
 	// Execute a command through runCommand
-	stdout, stderr, err := runner.runCommand("echo", "test")
-	_ = stdout
-	_ = stderr
-	_ = err
+	_, _ = runner.runCommand("echo", "test")
 
 	assert.Equal(t, expectedDir, capturedDir, "runCommand should set cmd.Dir to testsuite file directory")
 
@@ -697,12 +694,12 @@ func TestRunTestCase(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock the runCommand function to return an error for convert-claim-to-xr
-				r.runCommand = func(name string, _ ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, _ ...string) ([]byte, error) {
 					if name == "convert-claim-to-xr" {
-						return []byte("convert fail"), []byte(""), fmt.Errorf("fail")
+						return []byte("convert fail"), fmt.Errorf("fail")
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 			},
 			wantError: "failed to convert Claim: fail",
@@ -719,15 +716,15 @@ func TestRunTestCase(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock the runCommand function to return an error for crossplane render
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return []byte("render fail"), []byte(""), fmt.Errorf("fail")
+						return []byte("render fail"), fmt.Errorf("fail")
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 			},
-			wantError: "render fail",
+			wantError: "", // Render failure: Error is nil, failure shown in section
 		},
 		{
 			name: "validate fails",
@@ -742,15 +739,15 @@ func TestRunTestCase(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock the runCommand function to return an error for crossplane validate
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate fail"), []byte(""), fmt.Errorf("fail")
+						return []byte("validate fail"), fmt.Errorf("fail")
 					}
 
-					return validRenderYAML, []byte{}, nil
+					return validRenderYAML, nil
 				}
 			},
-			wantError: "validate fail",
+			wantError: "", // Validate failure: Error is nil, failure shown in section
 		},
 		{
 			name: "validate fails but post-test hooks run",
@@ -770,19 +767,19 @@ func TestRunTestCase(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock the runCommand function to return an error for crossplane validate
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate fail"), []byte(""), fmt.Errorf("fail")
+						return []byte("validate fail"), fmt.Errorf("fail")
 					}
 					// Mock successful hook execution
 					if name == "sh" && len(args) > 0 && args[0] == "-c" {
-						return []byte("cleanup executed"), []byte{}, nil
+						return []byte("cleanup executed"), nil
 					}
 
-					return validRenderYAML, []byte{}, nil
+					return validRenderYAML, nil
 				}
 			},
-			wantError: "validate fail",
+			wantError: "", // Validate failure: Error is nil, failure shown in section
 		},
 		{
 			name: "both validate and post-test hook fail",
@@ -802,19 +799,52 @@ func TestRunTestCase(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock the runCommand function
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate fail"), []byte(""), fmt.Errorf("fail")
+						return []byte("validate fail"), fmt.Errorf("fail")
 					}
 					// Mock failing hook execution
 					if name == "sh" && len(args) > 0 && args[0] == "-c" {
-						return []byte("cleanup"), []byte("hook failed"), errors.New("exit status 1")
+						return []byte("cleanup\nhook failed"), errors.New("exit status 1")
 					}
 
-					return validRenderYAML, []byte{}, nil
+					return validRenderYAML, nil
 				}
 			},
-			wantError: "validate fail",
+			wantError: "", // Both validate and post-test fail: Error is nil, failures in sections
+		},
+		{
+			name: "post-test hook template failure shows root cause",
+			testCase: api.TestCase{
+				Name: "test",
+				Inputs: api.Inputs{
+					XR:          "xr.yaml",
+					Composition: "comp.yaml",
+					Functions:   "functions.yaml",
+				},
+				Hooks: api.Hooks{
+					PostTest: []api.Hook{
+						{
+							Name: "templated-cleanup",
+							Run:  fmt.Sprintf("echo 'value: %s.Outputs.UnknownField%s'", testexecutionUtils.PlaceholderOpen, testexecutionUtils.PlaceholderClose),
+						},
+					},
+				},
+			},
+			setup: func(r *Runner) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
+					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
+						return validRenderYAML, nil
+					}
+
+					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
+						return []byte("validate ok"), nil
+					}
+
+					return []byte{}, nil
+				}
+			},
+			wantError: "", // Pipeline failure only: failure is shown in post-test hooks section
 		},
 		// Happy Path Tests
 		{
@@ -830,16 +860,16 @@ func TestRunTestCase(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock the runCommand function to return success
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 			},
 			wantError: "",
@@ -861,16 +891,16 @@ func TestRunTestCase(t *testing.T) {
 					return filepath.Join(outputPath, "xr.yaml"), nil
 				}
 				// Mock the runCommand function to return success for all operations
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 			},
 			wantError: "",
@@ -900,16 +930,16 @@ func TestRunTestCase(t *testing.T) {
 					return filepath.Join(outputPath, "patched-xr.yaml"), nil
 				}
 				// Mock runCommand to return successful results
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 			},
 			wantError: "",
@@ -941,16 +971,16 @@ func TestRunTestCase(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock the runCommand function to return success for all operations
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 			},
 			wantError: "",
@@ -975,16 +1005,16 @@ func TestRunTestCase(t *testing.T) {
 					return filepath.Join(outputPath, "patched-xr.yaml"), nil
 				}
 				// Mock runCommand to return successful results
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 			},
 			wantError: "",
@@ -1010,16 +1040,16 @@ func TestRunTestCase(t *testing.T) {
 					return filepath.Join(outputPath, "patched-xr.yaml"), nil
 				}
 				// Mock runCommand to return successful results
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 			},
 			wantError: "",
@@ -1061,16 +1091,16 @@ func TestRunTestCase(t *testing.T) {
 					return filepath.Join(outputPath, "patched-xr.yaml"), nil
 				}
 				// Mock runCommand to return successful results
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 			},
 			wantError: "",
@@ -1092,20 +1122,20 @@ func TestRunTestCase(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock runCommand to return successful results
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 					// Mock hook execution
 					if name == "sh" && len(args) > 0 && args[0] == "-c" {
-						return []byte("pre-test setup"), []byte{}, nil
+						return []byte("pre-test setup"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 			},
 			wantError: "",
@@ -1127,20 +1157,20 @@ func TestRunTestCase(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock runCommand to return successful results
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 					// Mock hook execution
 					if name == "sh" && len(args) > 0 && args[0] == "-c" {
-						return []byte("post-test cleanup"), []byte{}, nil
+						return []byte("post-test cleanup"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 			},
 			wantError: "",
@@ -1165,20 +1195,20 @@ func TestRunTestCase(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock runCommand to return successful results
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 					// Mock hook execution
 					if name == "sh" && len(args) > 0 && args[0] == "-c" {
-						return []byte("hook output"), []byte{}, nil
+						return []byte("hook output"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 			},
 			wantError: "",
@@ -1200,23 +1230,23 @@ func TestRunTestCase(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock runCommand to return successful results for crossplane commands
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 					// Mock failing hook execution
 					if name == "sh" && len(args) > 0 && args[0] == "-c" {
-						return []byte("failing setup"), []byte("hook failed"), errors.New("exit status 1")
+						return []byte("failing setup\nhook failed"), errors.New("exit status 1")
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 			},
-			wantError: "pre-test hook 'failing-setup' failed",
+			wantError: "", // Pre-test failure: Error is nil, failure shown in section
 		},
 		{
 			name: "xr with failing post-test hook",
@@ -1235,23 +1265,23 @@ func TestRunTestCase(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock runCommand to return successful results for crossplane commands
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 					// Mock failing hook execution
 					if name == "sh" && len(args) > 0 && args[0] == "-c" {
-						return []byte("failing cleanup"), []byte("hook failed"), errors.New("exit status 1")
+						return []byte("failing cleanup\nhook failed"), errors.New("exit status 1")
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 			},
-			wantError: "post-test hook 'failing-cleanup' failed",
+			wantError: "", // Post-test failure: Error is nil, failure shown in section
 		},
 	}
 
@@ -1274,24 +1304,64 @@ func TestRunTestCase(t *testing.T) {
 				assert.Equal(t, engine.StatusFail, result.Status)
 				require.Error(t, result.Error)
 				assert.Contains(t, result.Error.Error(), tc.wantError)
-			} else {
+			} else if result.Status != engine.StatusFail || result.Error != nil {
 				assert.Equal(t, engine.StatusPass, result.Status)
 				require.NoError(t, result.Error)
 			}
+			// else: pipeline failure only (StatusFail, Error == nil); failure is shown in sections
 
 			// For tests with post-test hooks, verify they ran
 			if tc.name == "validate fails but post-test hooks run" {
 				assert.Len(t, result.PostTestHooksResults, 1)
 				assert.Equal(t, "cleanup", result.PostTestHooksResults[0].Name)
 				require.NoError(t, result.PostTestHooksResults[0].Error)
+				assert.Contains(t, result.FormattedValidateOutput, "validate fail")
 			}
 
-			// For tests where both fail, verify both errors are in the message
+			// Pipeline-only failures: verify failure is in formatted sections
+			if tc.name == "render fails" {
+				assert.Contains(t, result.FormattedRenderOutput, "render fail")
+			}
+
+			if tc.name == "validate fails" {
+				assert.Contains(t, result.FormattedValidateOutput, "validate fail")
+			}
+
+			if tc.name == "xr with failing pre-test hook" {
+				var buf bytes.Buffer
+				result.Print(&buf)
+				assert.Contains(t, buf.String(), "[x] failing-setup")
+			}
+
+			if tc.name == "xr with failing post-test hook" {
+				var buf bytes.Buffer
+				result.Print(&buf)
+				assert.Contains(t, buf.String(), "[x] failing-cleanup")
+			}
+
 			if tc.name == "both validate and post-test hook fail" {
 				assert.Len(t, result.PostTestHooksResults, 1)
 				require.Error(t, result.PostTestHooksResults[0].Error)
-				assert.Contains(t, result.Error.Error(), "validate fail")
-				assert.Contains(t, result.Error.Error(), "post-test hook")
+				assert.Contains(t, result.FormattedValidateOutput, "validate fail")
+
+				var buf bytes.Buffer
+				result.Print(&buf)
+				assert.Contains(t, buf.String(), "Post-test Hooks")
+			}
+
+			if tc.name == "post-test hook template failure shows root cause" {
+				assert.Len(t, result.PostTestHooksResults, 1)
+				require.Error(t, result.PostTestHooksResults[0].Error)
+				assert.Contains(t, result.PostTestHooksResults[0].Error.Error(), "failed to render hook template")
+				assert.Contains(t, result.PostTestHooksResults[0].Error.Error(), "can't evaluate field UnknownField")
+
+				var buf bytes.Buffer
+				result.Print(&buf)
+				assert.Contains(t, buf.String(), "Post-test Hooks:")
+				assert.Contains(t, buf.String(), "[x] templated-cleanup")
+				assert.Contains(t, buf.String(), "error: failed to render hook template")
+				assert.Contains(t, buf.String(), "can't evaluate field UnknownField")
+				assert.NotContains(t, buf.String(), "exit code")
 			}
 		})
 	}
@@ -2307,16 +2377,16 @@ func TestRunTestCase_MergeCommon(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock runCommand to return successful results
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 				// Mock verifyPathExists to track calls
 				r.verifyPathExists = func(path string) error {
@@ -2344,16 +2414,16 @@ func TestRunTestCase_MergeCommon(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock runCommand to return successful results
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 				// Mock verifyPathExists to track calls
 				r.verifyPathExists = func(path string) error {
@@ -2382,16 +2452,16 @@ func TestRunTestCase_MergeCommon(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock runCommand to return successful results
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 				// Mock verifyPathExists to track calls
 				r.verifyPathExists = func(path string) error {
@@ -2420,16 +2490,16 @@ func TestRunTestCase_MergeCommon(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock runCommand to return successful results
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 				// Mock verifyPathExists to track calls
 				r.verifyPathExists = func(path string) error {
@@ -2458,16 +2528,16 @@ func TestRunTestCase_MergeCommon(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock runCommand to return successful results
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 				// Mock verifyPathExists to track calls
 				r.verifyPathExists = func(path string) error {
@@ -2496,16 +2566,16 @@ func TestRunTestCase_MergeCommon(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock runCommand to return successful results
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 				// Mock verifyPathExists to track calls
 				r.verifyPathExists = func(path string) error {
@@ -2534,16 +2604,16 @@ func TestRunTestCase_MergeCommon(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock runCommand to return successful results
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 				// Mock verifyPathExists to track calls
 				r.verifyPathExists = func(path string) error {
@@ -2574,16 +2644,16 @@ func TestRunTestCase_MergeCommon(t *testing.T) {
 			},
 			setup: func(r *Runner) {
 				// Mock runCommand to return successful results
-				r.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+				r.runCommand = func(name string, args ...string) ([]byte, error) {
 					if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-						return validRenderYAML, []byte{}, nil
+						return validRenderYAML, nil
 					}
 
 					if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-						return []byte("validate ok"), []byte{}, nil
+						return []byte("validate ok"), nil
 					}
 
-					return []byte{}, []byte{}, nil
+					return []byte{}, nil
 				}
 				// Mock verifyPathExists to track calls
 				r.verifyPathExists = func(path string) error {
@@ -2642,16 +2712,16 @@ func TestRunTestCase_UsesTestResultWithStartTime(t *testing.T) {
 	runner.testSuiteSpec = &api.TestSuiteSpec{}
 
 	// Mock runCommand to return successful results
-	runner.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+	runner.runCommand = func(name string, args ...string) ([]byte, error) {
 		if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-			return []byte("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: test\n"), []byte{}, nil
+			return []byte("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: test\n"), nil
 		}
 
 		if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-			return []byte("validate ok"), []byte{}, nil
+			return []byte("validate ok"), nil
 		}
 
-		return []byte{}, []byte{}, nil
+		return []byte{}, nil
 	}
 
 	// Provide a minimal valid testCase
@@ -2699,12 +2769,12 @@ func TestRunTestCase_SkipsValidateWhenNoCRDs(t *testing.T) {
 	}
 
 	// Mock runCommand to return successful results
-	runner.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+	runner.runCommand = func(name string, args ...string) ([]byte, error) {
 		if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-			return validRenderYAML, []byte{}, nil
+			return validRenderYAML, nil
 		}
 		// Validate should not be called when no CRDs are present
-		return []byte{}, []byte{}, nil
+		return []byte{}, nil
 	}
 
 	testCase := api.TestCase{
@@ -3304,16 +3374,16 @@ metadata:
 	}
 
 	// Mock runCommand to return successful render and validate results
-	runner.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+	runner.runCommand = func(name string, args ...string) ([]byte, error) {
 		if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-			return validRenderYAML, []byte{}, nil
+			return validRenderYAML, nil
 		}
 
 		if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-			return []byte("validate ok"), []byte{}, nil
+			return []byte("validate ok"), nil
 		}
 
-		return []byte{}, []byte{}, nil
+		return []byte{}, nil
 	}
 
 	testSuiteResult := engine.NewTestSuiteResult("test-suite.yaml", false)
@@ -3516,16 +3586,16 @@ metadata:
 		}
 
 		// Mock runCommand to return successful render and validate results
-		runner.runCommand = func(name string, args ...string) ([]byte, []byte, error) {
+		runner.runCommand = func(name string, args ...string) ([]byte, error) {
 			if name == config.CrossplaneCmd && len(args) > 0 && args[0] == config.RenderSubcommand {
-				return validRenderYAML, []byte{}, nil
+				return validRenderYAML, nil
 			}
 
 			if name == config.CrossplaneCmd && len(args) > 1 && args[0] == config.ValidateSubcommand {
-				return []byte("validate ok"), []byte{}, nil
+				return []byte("validate ok"), nil
 			}
 
-			return []byte{}, []byte{}, nil
+			return []byte{}, nil
 		}
 
 		testSuiteResult := engine.NewTestSuiteResult("test-suite.yaml", false)

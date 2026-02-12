@@ -31,6 +31,17 @@ const (
 	testResource2File = "resource2.yaml"
 )
 
+func filterFailedAssertions(results []engine.AssertionResult) []engine.AssertionResult {
+	var failed []engine.AssertionResult
+	for _, r := range results {
+		if r.Status == engine.StatusFail {
+			failed = append(failed, r)
+		}
+	}
+
+	return failed
+}
+
 func TestNewAssertionExecutor(t *testing.T) {
 	outputs := &engine.Outputs{
 		Rendered: make(map[string]string),
@@ -72,11 +83,12 @@ metadata:
 			{Name: "exists-1", Type: "Exists", Resource: "Pod/test-pod"},
 		}
 
-		allResults, failedResults := executor.executeAssertions(assertions)
+		allResults := executor.executeAssertions(assertions)
 		assert.Len(t, allResults, 2)
 		assert.Equal(t, "count-1", allResults[0].Name)
 		assert.Equal(t, "exists-1", allResults[1].Name)
-		assert.Empty(t, failedResults)
+		failed := filterFailedAssertions(allResults)
+		assert.Empty(t, failed)
 	})
 
 	t.Run("continues execution when one assertion fails", func(t *testing.T) {
@@ -104,12 +116,13 @@ metadata:
 			{Name: "exists-ok", Type: "Exists", Resource: "Pod/test-pod"}, // Will pass
 		}
 
-		allResults, failedResults := executor.executeAssertions(assertions)
+		allResults := executor.executeAssertions(assertions)
 		assert.Len(t, allResults, 2)
 		assert.Equal(t, engine.StatusFail, allResults[0].Status)
 		assert.Equal(t, engine.StatusPass, allResults[1].Status)
-		assert.Len(t, failedResults, 1)
-		assert.Equal(t, "count-wrong", failedResults[0].Name)
+		failed := filterFailedAssertions(allResults)
+		assert.Len(t, failed, 1)
+		assert.Equal(t, "count-wrong", failed[0].Name)
 	})
 
 	t.Run("handles execution errors gracefully", func(t *testing.T) {
@@ -123,12 +136,13 @@ metadata:
 			{Name: "invalid-type", Type: "InvalidType", Value: "test"},
 		}
 
-		allResults, failedResults := executor.executeAssertions(assertions)
+		allResults := executor.executeAssertions(assertions)
 		assert.Len(t, allResults, 1)
 		assert.Equal(t, engine.StatusFail, allResults[0].Status)
 		assert.Contains(t, allResults[0].Message, "unsupported assertion type")
-		assert.Len(t, failedResults, 1)
-		assert.Equal(t, "invalid-type", failedResults[0].Name)
+		failed := filterFailedAssertions(allResults)
+		assert.Len(t, failed, 1)
+		assert.Equal(t, "invalid-type", failed[0].Name)
 	})
 
 	t.Run("handles empty assertions list", func(t *testing.T) {
@@ -138,9 +152,9 @@ metadata:
 
 		executor := newAssertionExecutor(afero.NewMemMapFs(), outputs, false)
 
-		allResults, failedResults := executor.executeAssertions([]api.Assertion{})
+		allResults := executor.executeAssertions([]api.Assertion{})
 		assert.Empty(t, allResults)
-		assert.Empty(t, failedResults)
+		assert.Empty(t, filterFailedAssertions(allResults))
 	})
 }
 

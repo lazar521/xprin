@@ -5,56 +5,81 @@
     missing mandatory field: functions (it can be specified either in the test case or in the common inputs)
 === RUN   Render failure (claim used as XR)
 --- FAIL: Render failure (claim used as XR) (X.XXXs)
-    crossplane: error: composition's compositeTypeRef.kind (XAWSInfrastructure) does not match XR's kind (AWSInfrastructure)
+    Render:
+        crossplane: error: composition's compositeTypeRef.kind (XAWSInfrastructure) does not match XR's kind (AWSInfrastructure)
 === RUN   Validation failure (missing CRD)
 --- FAIL: Validation failure (missing CRD) (X.XXXs)
-    crossplane: error: cannot validate resources: could not validate all resources, schema(s) missing
+    Validate:
         [!] could not find CRD/XRD for: aws.example.com/v1, Kind=XAWSInfrastructure
         Total 2 resources: 1 missing schemas, 1 success cases, 0 failure cases
+        crossplane: error: cannot validate resources: could not validate all resources, schema(s) missing
 === RUN   Validation failure (v1 only) (missing required team)
 --- PASS: Validation failure (v1 only) (missing required team) (X.XXXs)
 === RUN   Pre-test hook failure
 --- FAIL: Pre-test hook failure (X.XXXs)
-    pre-test hook 'Fail pre-test hook' failed with exit code 1
+    Pre-test Hooks:
+        [x] Fail pre-test hook [exit code: 1]
 === RUN   Pre-test hook failure (unnamed)
 --- FAIL: Pre-test hook failure (unnamed) (X.XXXs)
-    pre-test hook failed with exit code 1: exit 1
+    Pre-test Hooks:
+        [x] exit 1 [exit code: 1]
 === RUN   Pre-test hook failure (multiline stderr)
 --- FAIL: Pre-test hook failure (multiline stderr) (X.XXXs)
-    pre-test hook 'Fail pre-test hook (multiline stderr)' failed with exit code 1: first line
-    second line
-    third line
+    Pre-test Hooks:
+        [x] Fail pre-test hook (multiline stderr) [exit code: 1]
+            first line
+            second line
+            third line
 === RUN   Pre-test hook failure (multiline stdout)
 --- FAIL: Pre-test hook failure (multiline stdout) (X.XXXs)
-    pre-test hook 'Fail pre-test hook (multiline stdout)' failed with exit code 1
+    Pre-test Hooks:
+        [x] Fail pre-test hook (multiline stdout) [exit code: 1]
+            stdout line 1
+            stdout line 2
 === RUN   Pre-test hook failure (multiline stdout and stderr)
 --- FAIL: Pre-test hook failure (multiline stdout and stderr) (X.XXXs)
-    pre-test hook 'Fail pre-test hook (multiline stdout and stderr)' failed with exit code 1: stderr 2
-    stderr 4
+    Pre-test Hooks:
+        [x] Fail pre-test hook (multiline stdout and stderr) [exit code: 1]
+            stdout 1
+            stderr 2
+            stdout 3
+            stderr 4
 === RUN   Successful test case
 --- PASS: Successful test case (X.XXXs)
 === RUN   Post-test hook failure
 --- FAIL: Post-test hook failure (X.XXXs)
-    post-test hook 'Fail post-test hook' failed with exit code 1
+    Post-test Hooks:
+        [x] Fail post-test hook [exit code: 1]
+=== RUN   Post-test hook template failure
+--- FAIL: Post-test hook template failure (X.XXXs)
+    Post-test Hooks:
+        [x] Fail post-test hook (template rendering)
+            error: failed to render hook template: failed to execute template: template: hook:1:16: executing "hook" at <.Outputs.UnknownField>: can't evaluate field UnknownField in type *engine.Outputs
 === RUN   Assertion failure
 --- FAIL: Assertion failure (X.XXXs)
-    1 assertion failed:
-        FAIL: Resource count should be zero - expected 0 resources, got 2
+    Assertions:
+        [x] Resource count should be zero - expected 0 resources, got 2
+        Total: 2 assertions, 1 successful, 1 failed
 === RUN   Failed validation and assertion
 --- FAIL: Failed validation and assertion (X.XXXs)
-    crossplane: error: cannot validate resources: could not validate all resources, schema(s) missing
+    Validate:
         [!] could not find CRD/XRD for: aws.example.com/v1, Kind=XAWSInfrastructure
         Total 2 resources: 1 missing schemas, 1 success cases, 0 failure cases
-    1 assertion failed:
-        FAIL: Failed assertion - expected 0 resources, got 2
+        crossplane: error: cannot validate resources: could not validate all resources, schema(s) missing
+    Assertions:
+        [x] Failed assertion - expected 0 resources, got 2
+        Total: 2 assertions, 1 successful, 1 failed
 === RUN   Failed validation, assertion, and post-test hook
 --- FAIL: Failed validation, assertion, and post-test hook (X.XXXs)
-    crossplane: error: cannot validate resources: could not validate all resources, schema(s) missing
+    Validate:
         [!] could not find CRD/XRD for: aws.example.com/v1, Kind=XAWSInfrastructure
         Total 2 resources: 1 missing schemas, 1 success cases, 0 failure cases
-    1 assertion failed:
-        FAIL: Failed assertion - expected 0 resources, got 2
-    post-test hook 'Failed post-test hook' failed with exit code 2
+        crossplane: error: cannot validate resources: could not validate all resources, schema(s) missing
+    Assertions:
+        [x] Failed assertion - expected 0 resources, got 2
+        Total: 2 assertions, 1 successful, 1 failed
+    Post-test Hooks:
+        [x] Failed post-test hook [exit code: 2]
 FAIL
 FAIL	examples/mytests/0_e2e/failures_xprin.yaml	X.XXXs
 FAIL

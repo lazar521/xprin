@@ -169,6 +169,16 @@ tests:
     - name: Another failed post-test hook, it should never be shown"
       run: exit 2
 
+- name: "Post-test hook template failure"
+  inputs:
+    xr: ../../aws/xr.yaml
+    composition: ../../aws/composition.yaml
+    functions: ../../aws/functions.yaml
+  hooks:
+    post-test:
+    - name: "Fail post-test hook (template rendering)"
+      run: echo "{{ .Outputs.UnknownField }}"
+
 # Assertion failures
 - name: "Assertion failure"
   inputs:

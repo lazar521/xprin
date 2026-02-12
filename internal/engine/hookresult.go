@@ -21,18 +21,16 @@ package engine
 type HookResult struct {
 	Name    string // Hook name (optional)
 	Command string // The command that was executed
-	Stdout  []byte // Standard output
-	Stderr  []byte // Standard error
+	Output  []byte // Combined output of stdout and stderr
 	Error   error  // Execution error (nil if successful)
 }
 
 // NewHookResult creates a new HookResult with the given parameters.
-func NewHookResult(name, command string, stdout, stderr []byte, err error) HookResult {
+func NewHookResult(name, command string, output []byte, err error) HookResult {
 	return HookResult{
 		Name:    name,
 		Command: command,
-		Stdout:  stdout,
-		Stderr:  stderr,
+		Output:  output,
 		Error:   err,
 	}
 }

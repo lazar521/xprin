@@ -18,6 +18,7 @@ package engine
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -86,7 +87,7 @@ func TestTestCaseResult_Complete(t *testing.T) {
 }
 
 func TestTestCaseResult_FailRender(t *testing.T) {
-	t.Run("sets hasFailedRender and returns fail result", func(t *testing.T) {
+	t.Run("sets hasFailedRender and returns fail result with no Error", func(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", false, false, false, false, false)
 		result.RawRenderOutput = []byte("render error output")
 		// Format the error output (simulating what runner.go does for error case)
@@ -95,9 +96,10 @@ func TestTestCaseResult_FailRender(t *testing.T) {
 		returned := result.FailRender()
 
 		assert.Equal(t, result, returned) // Should return self for chaining
-		assert.True(t, result.hasFailedRender)
+		assert.True(t, result.HasFailedRender)
 		assert.Equal(t, StatusFail, result.Status)
-		assert.Contains(t, result.Error.Error(), "render error output")
+		require.NoError(t, result.Error) // Failure is shown only in render section
+		assert.Contains(t, result.FormattedRenderOutput, "render error output")
 	})
 }
 
@@ -110,7 +112,7 @@ func TestTestCaseResult_MarkValidateFailed(t *testing.T) {
 		returned := result.Fail(validateErr)
 
 		assert.Equal(t, result, returned) // Should return self for chaining
-		assert.True(t, result.hasFailedValidate)
+		assert.True(t, result.HasFailedValidate)
 		assert.Equal(t, StatusFail, result.Status)
 		assert.Contains(t, result.Error.Error(), "validate error output")
 	})
@@ -161,23 +163,23 @@ func TestTestCaseResult_Print(t *testing.T) {
 		result.Print(&buf)
 
 		output := buf.String()
-		assert.Contains(t, output, "Rendered resources:")
-		assert.Equal(t, 1, strings.Count(output, "Rendered resources:"), "Rendered resources: should appear exactly once")
+		assert.Contains(t, output, "Render:")
+		assert.Equal(t, 1, strings.Count(output, "Render:"), "Render: should appear exactly once")
 	})
 
 	t.Run("prints validate output when verbose and show-validate", func(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", true, false, true, false, false)
 		result.RawValidateOutput = []byte("[✓] test validated successfully")
 		// ProcessValidateOutput sets FormattedValidateOutput internally
-		result.ProcessValidateOutput(result.RawValidateOutput)
+		result.ProcessValidateOutput()
 		result.Complete()
 
 		var buf bytes.Buffer
 		result.Print(&buf)
 
 		output := buf.String()
-		assert.Contains(t, output, "Validation results:")
-		assert.Equal(t, 1, strings.Count(output, "Validation results:"), "Validation results: should appear exactly once")
+		assert.Contains(t, output, "Validate:")
+		assert.Equal(t, 1, strings.Count(output, "Validate:"), "Validate: should appear exactly once")
 	})
 
 	t.Run("does not print render header when render output is nil", func(t *testing.T) {
@@ -189,7 +191,7 @@ func TestTestCaseResult_Print(t *testing.T) {
 		result.Print(&buf)
 
 		output := buf.String()
-		assert.NotContains(t, output, "Rendered resources:")
+		assert.NotContains(t, output, "Render:")
 	})
 
 	t.Run("does not print validate header when validate output is nil", func(t *testing.T) {
@@ -201,23 +203,23 @@ func TestTestCaseResult_Print(t *testing.T) {
 		result.Print(&buf)
 
 		output := buf.String()
-		assert.NotContains(t, output, "Validation results:")
+		assert.NotContains(t, output, "Validate:")
 	})
 
 	t.Run("prints pre-test hooks output when verbose and show-hooks", func(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", true, false, false, true, false)
 		result.PreTestHooksResults = []HookResult{
-			NewHookResult("test-hook", "echo 'hello\nworld'", []byte("hello\nworld"), []byte(""), nil),
+			NewHookResult("test-hook", "echo 'hello\nworld'", []byte("hello\nworld"), nil),
 		}
-		result.ProcessHooksOutput()
+		result.ProcessPreTestHooksOutput()
 		result.Complete()
 
 		var buf bytes.Buffer
 		result.Print(&buf)
 
 		output := buf.String()
-		assert.Contains(t, output, "pre-test hooks results:")
-		assert.Contains(t, output, "- test-hook")
+		assert.Contains(t, output, "Pre-test Hooks:")
+		assert.Contains(t, output, "[✓] test-hook")
 		assert.Contains(t, output, "hello")
 		assert.Contains(t, output, "world")
 	})
@@ -225,17 +227,17 @@ func TestTestCaseResult_Print(t *testing.T) {
 	t.Run("prints post-test hooks output when verbose and show-hooks", func(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", true, false, false, true, false)
 		result.PostTestHooksResults = []HookResult{
-			NewHookResult("cleanup-hook", "echo 'goodbye\nuniverse'", []byte("goodbye\nuniverse"), []byte(""), nil),
+			NewHookResult("cleanup-hook", "echo 'goodbye\nuniverse'", []byte("goodbye\nuniverse"), nil),
 		}
-		result.ProcessHooksOutput()
+		result.ProcessPostTestHooksOutput()
 		result.Complete()
 
 		var buf bytes.Buffer
 		result.Print(&buf)
 
 		output := buf.String()
-		assert.Contains(t, output, "post-test hooks results:")
-		assert.Contains(t, output, "- cleanup-hook")
+		assert.Contains(t, output, "Post-test Hooks:")
+		assert.Contains(t, output, "[✓] cleanup-hook")
 		assert.Contains(t, output, "goodbye")
 		assert.Contains(t, output, "universe")
 	})
@@ -243,12 +245,13 @@ func TestTestCaseResult_Print(t *testing.T) {
 	t.Run("does not print hooks output when show-hooks is false", func(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", true, false, false, false, false)
 		result.PreTestHooksResults = []HookResult{
-			NewHookResult("test-hook", "echo 'hello'", []byte("hello"), []byte(""), nil),
+			NewHookResult("test-hook", "echo 'hello'", []byte("hello"), nil),
 		}
 		result.PostTestHooksResults = []HookResult{
-			NewHookResult("cleanup-hook", "echo 'goodbye'", []byte("goodbye"), []byte(""), nil),
+			NewHookResult("cleanup-hook", "echo 'goodbye'", []byte("goodbye"), nil),
 		}
-		result.ProcessHooksOutput()
+		result.ProcessPreTestHooksOutput()
+		result.ProcessPostTestHooksOutput()
 		result.Complete()
 
 		var buf bytes.Buffer
@@ -264,12 +267,13 @@ func TestTestCaseResult_Print(t *testing.T) {
 	t.Run("does not print hooks output when verbose is false", func(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", false, false, false, true, false)
 		result.PreTestHooksResults = []HookResult{
-			NewHookResult("test-hook", "echo 'hello'", []byte("hello"), []byte(""), nil),
+			NewHookResult("test-hook", "echo 'hello'", []byte("hello"), nil),
 		}
 		result.PostTestHooksResults = []HookResult{
-			NewHookResult("cleanup-hook", "echo 'goodbye'", []byte("goodbye"), []byte(""), nil),
+			NewHookResult("cleanup-hook", "echo 'goodbye'", []byte("goodbye"), nil),
 		}
-		result.ProcessHooksOutput()
+		result.ProcessPreTestHooksOutput()
+		result.ProcessPostTestHooksOutput()
 		result.Complete()
 
 		var buf bytes.Buffer
@@ -296,15 +300,11 @@ func TestTestCaseResult_Print(t *testing.T) {
 
 	t.Run("prints assertion results when verbose and show-assertions", func(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", true, false, false, false, true)
-		result.AssertionsAllResults = []AssertionResult{
+		result.AssertionsResults = []AssertionResult{
 			NewAssertionResult("count-check", StatusPass, "found 3 resources (as expected)"),
 			NewAssertionResult("resource-exists", StatusPass, "resource S3Bucket/my-bucket found (as expected)"),
 			NewAssertionResult("field-value", StatusFail, "expected value 'test', got 'other'"),
 		}
-		result.AssertionsFailedResults = []AssertionResult{
-			NewAssertionResult("field-value", StatusFail, "expected value 'test', got 'other'"),
-		}
-		// ProcessAssertionsOutput sets FormattedAssertionsOutput and FormattedAssertionsFailedOutput internally
 		result.ProcessAssertionsOutput()
 		result.Complete()
 
@@ -312,15 +312,16 @@ func TestTestCaseResult_Print(t *testing.T) {
 		result.Print(&buf)
 
 		output := buf.String()
-		assert.Contains(t, output, "Assertions results:")
-		assert.Contains(t, output, "PASS: count-check - found 3 resources (as expected)")
-		assert.Contains(t, output, "PASS: resource-exists - resource S3Bucket/my-bucket found (as expected)")
-		assert.Contains(t, output, "FAIL: field-value - expected value 'test', got 'other'")
+		assert.Contains(t, output, "Assertions:")
+		assert.Contains(t, output, "[✓] count-check - found 3 resources (as expected)")
+		assert.Contains(t, output, "[✓] resource-exists - resource S3Bucket/my-bucket found (as expected)")
+		assert.Contains(t, output, "[x] field-value - expected value 'test', got 'other'")
+		assert.Contains(t, output, "Total: 3 assertions, 2 successful, 1 failed")
 	})
 
 	t.Run("does not print assertion results when show-assertions is false", func(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", true, false, false, false, false)
-		result.AssertionsAllResults = []AssertionResult{
+		result.AssertionsResults = []AssertionResult{
 			NewAssertionResult("count-check", StatusPass, "found 3 resources (as expected)"),
 		}
 		result.ProcessAssertionsOutput()
@@ -330,13 +331,13 @@ func TestTestCaseResult_Print(t *testing.T) {
 		result.Print(&buf)
 
 		output := buf.String()
-		assert.NotContains(t, output, "Assertions results:")
+		assert.NotContains(t, output, "Assertions:")
 		assert.NotContains(t, output, "count-check")
 	})
 
 	t.Run("does not print assertion results when verbose is false", func(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", false, false, false, false, true)
-		result.AssertionsAllResults = []AssertionResult{
+		result.AssertionsResults = []AssertionResult{
 			NewAssertionResult("count-check", StatusPass, "found 3 resources (as expected)"),
 		}
 		result.ProcessAssertionsOutput()
@@ -346,32 +347,32 @@ func TestTestCaseResult_Print(t *testing.T) {
 		result.Print(&buf)
 
 		output := buf.String()
-		assert.NotContains(t, output, "Assertions results:")
+		assert.NotContains(t, output, "Assertions:")
 		assert.NotContains(t, output, "count-check")
 	})
 
 	t.Run("does not print assertion header when assertion results is empty", func(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", true, false, false, false, true)
-		result.AssertionsAllResults = nil
+		result.AssertionsResults = nil
 		result.Complete()
 
 		var buf bytes.Buffer
 		result.Print(&buf)
 
 		output := buf.String()
-		assert.NotContains(t, output, "Assertions results:")
+		assert.NotContains(t, output, "Assertions:")
 	})
 
 	t.Run("does not print assertion header when assertion results is empty slice", func(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", true, false, false, false, true)
-		result.AssertionsAllResults = []AssertionResult{}
+		result.AssertionsResults = []AssertionResult{}
 		result.Complete()
 
 		var buf bytes.Buffer
 		result.Print(&buf)
 
 		output := buf.String()
-		assert.NotContains(t, output, "Assertions results:")
+		assert.NotContains(t, output, "Assertions:")
 	})
 }
 
@@ -385,7 +386,7 @@ func TestTestCaseResult_Print_Integration(t *testing.T) {
 
 		result.RawValidateOutput = []byte("[✓] test validated successfully")
 		// ProcessValidateOutput sets FormattedValidateOutput internally
-		result.ProcessValidateOutput(result.RawValidateOutput)
+		result.ProcessValidateOutput()
 		result.Complete()
 
 		var buf bytes.Buffer
@@ -394,14 +395,14 @@ func TestTestCaseResult_Print_Integration(t *testing.T) {
 		output := buf.String()
 		assert.Contains(t, output, "=== RUN   integration-test")
 		assert.Contains(t, output, "--- PASS: integration-test")
-		assert.Contains(t, output, "Rendered resources:")
-		assert.Contains(t, output, "Validation results:")
+		assert.Contains(t, output, "Render:")
+		assert.Contains(t, output, "Validate:")
 	})
 
 	t.Run("successful test with all outputs including hooks", func(t *testing.T) {
 		result := NewTestCaseResult("full-integration-test", "full-integration-test-id", true, true, true, true, false)
 		result.PreTestHooksResults = []HookResult{
-			NewHookResult("setup-hook", "echo 'pre-test setup'", []byte("pre-test setup"), []byte(""), nil),
+			NewHookResult("setup-hook", "echo 'pre-test setup'", []byte("pre-test setup"), nil),
 		}
 		result.RawRenderOutput = []byte("apiVersion: v1\nkind: Pod\nmetadata:\n  name: testpod")
 		// ProcessRenderOutput sets RenderedResources and FormattedRenderOutput internally
@@ -410,12 +411,12 @@ func TestTestCaseResult_Print_Integration(t *testing.T) {
 
 		result.RawValidateOutput = []byte("[✓] testpod validated successfully")
 		// ProcessValidateOutput sets FormattedValidateOutput internally
-		result.ProcessValidateOutput(result.RawValidateOutput)
+		result.ProcessValidateOutput()
 		result.PostTestHooksResults = []HookResult{
-			NewHookResult("cleanup-hook", "echo 'post-test cleanup'", []byte("post-test cleanup"), []byte(""), nil),
+			NewHookResult("cleanup-hook", "echo 'post-test cleanup'", []byte("post-test cleanup"), nil),
 		}
-		// ProcessHooksOutput sets FormattedPreTestHooksOutput and FormattedPostTestHooksOutput internally
-		result.ProcessHooksOutput()
+		result.ProcessPreTestHooksOutput()
+		result.ProcessPostTestHooksOutput()
 		result.Complete()
 
 		var buf bytes.Buffer
@@ -425,10 +426,10 @@ func TestTestCaseResult_Print_Integration(t *testing.T) {
 		assert.Contains(t, output, "=== RUN   full-integration-test")
 		assert.Contains(t, output, "--- PASS: full-integration-test")
 		// Check order: pre-test hooks, render, validate, post-test hooks
-		preTestIndex := strings.Index(output, "pre-test hooks results:")
-		renderIndex := strings.Index(output, "Rendered resources:")
-		validateIndex := strings.Index(output, "Validation results:")
-		postTestIndex := strings.Index(output, "post-test hooks results:")
+		preTestIndex := strings.Index(output, "Pre-test Hooks:")
+		renderIndex := strings.Index(output, "Render:")
+		validateIndex := strings.Index(output, "Validate:")
+		postTestIndex := strings.Index(output, "Post-test Hooks:")
 
 		assert.Less(t, preTestIndex, renderIndex, "Pre-test hooks should appear before render")
 		assert.Less(t, renderIndex, validateIndex, "Render should appear before validate")
@@ -501,7 +502,7 @@ func TestFormatRenderOutput(t *testing.T) {
 			output := result.formatRenderOutput()
 
 			if tc.wantOutput {
-				assert.True(t, strings.HasPrefix(output, "    Rendered resources:"))
+				assert.True(t, strings.HasPrefix(output, "    Render:"))
 				assert.Contains(t, output, "\n        └── Pod/testpod")
 
 				if tc.wantKind != "" {
@@ -536,6 +537,7 @@ crossplane: error: cannot validate resources: could not validate all resources, 
 		notWant      []string
 		verbose      bool
 		showValidate bool
+		expectEmpty  bool // true when section is not shown (success and !Verbose && !ShowValidate)
 	}{
 		{
 			name:  "success show-validate",
@@ -548,22 +550,21 @@ crossplane: error: cannot validate resources: could not validate all resources, 
 			showValidate: true,
 		},
 		{
-			name:  "success no-show-validate",
-			input: validateSuccess,
-			want: []string{
-				"myapp validated successfully",
-				"0 missing schemas, 1 success cases, 0 failure cases",
-			},
-			verbose:      true,
+			name:         "success no-show-validate",
+			input:        validateSuccess,
+			verbose:      false,
 			showValidate: false,
+			expectEmpty:  true, // section not shown when success and !Verbose && !ShowValidate
 		},
 		{
 			name:  "failure show-validate",
 			input: validateFailure,
 			want: []string{
-				"crossplane: error: cannot validate resources",
+				"Validate:",
+				"[!] could not find CRD/XRD for",
 				"myapp validated successfully",
-				"\n    [!] could not find CRD/XRD for",
+				"Total 2 resources: 1 missing schemas, 1 success cases, 0 failure cases",
+				"crossplane: error: cannot validate resources",
 			},
 			verbose:      true,
 			showValidate: true,
@@ -572,8 +573,10 @@ crossplane: error: cannot validate resources: could not validate all resources, 
 			name:  "failure no-show-validate",
 			input: validateFailure,
 			want: []string{
+				"Validate:",
+				"[!] could not find CRD/XRD for",
+				"Total 2 resources: 1 missing schemas, 1 success cases, 0 failure cases",
 				"crossplane: error: cannot validate resources",
-				"\n    [!] could not find CRD/XRD for",
 			},
 			notWant:      []string{"myapp validated successfully"},
 			verbose:      false,
@@ -588,10 +591,16 @@ crossplane: error: cannot validate resources: could not validate all resources, 
 
 			// Set hasFailedValidate for failure test cases
 			if strings.Contains(tc.name, "failure") {
-				result.hasFailedValidate = true
+				result.HasFailedValidate = true
 			}
 
-			output := result.formatValidateOutput([]byte(tc.input))
+			result.RawValidateOutput = []byte(tc.input)
+			output := result.formatValidateOutput()
+
+			if tc.expectEmpty {
+				assert.Empty(t, output)
+				return
+			}
 
 			for _, want := range tc.want {
 				assert.Contains(t, output, want)
@@ -603,18 +612,13 @@ crossplane: error: cannot validate resources: could not validate all resources, 
 				}
 			}
 
-			if !tc.verbose && strings.HasPrefix(output, "crossplane:") {
-				assert.Contains(t, output, "    ") // Check for extra spaces
-			}
-			// For success cases, should have proper indentation
-			if !strings.HasPrefix(output, "crossplane:") {
-				assert.True(t, strings.HasPrefix(output, "    Validation results:"))
+			// Single format for both success and failure: leading indent + header + indented body
+			assert.True(t, strings.HasPrefix(output, "    Validate:"))
+
+			if !strings.Contains(tc.input, "crossplane: error") {
 				assert.Contains(t, output, "\n        [✓] myorg.example.com/v1alpha1, Kind=XApp, myapp validated successfully")
-			}
-			// Should always move crossplane: error from last line to first line
-			if strings.Contains(output, "crossplane:") {
-				// Ensure it starts with "crossplane:"
-				assert.True(t, strings.HasPrefix(output, "crossplane:"))
+			} else {
+				assert.Contains(t, output, "crossplane: error: cannot validate resources")
 			}
 		})
 	}
@@ -622,66 +626,84 @@ crossplane: error: cannot validate resources: could not validate all resources, 
 
 func TestTestCaseResult_formatAssertionsOutput(t *testing.T) {
 	t.Run("formats assertion results with header", func(t *testing.T) {
-		result := NewTestCaseResult("test", "test-id", true, false, false, false, false)
-
-		assertionResults := []AssertionResult{
+		result := NewTestCaseResult("test", "test-id", true, false, false, false, true) // Verbose, ShowAssertions => show all
+		result.AssertionsResults = []AssertionResult{
 			NewAssertionResult("count-check", StatusPass, "found 3 resources (as expected)"),
 			NewAssertionResult("resource-exists", StatusPass, "resource S3Bucket/my-bucket found (as expected)"),
 			NewAssertionResult("field-value", StatusFail, "expected value 'test', got 'other'"),
 		}
-		formatted := result.formatAssertionsOutput(assertionResults, false)
+		formatted := result.formatAssertionsOutput()
 
-		expected := "    Assertions results:\n        PASS: count-check - found 3 resources (as expected)\n        PASS: resource-exists - resource S3Bucket/my-bucket found (as expected)\n        FAIL: field-value - expected value 'test', got 'other'"
+		expected := "    Assertions:\n        [✓] count-check - found 3 resources (as expected)\n        [✓] resource-exists - resource S3Bucket/my-bucket found (as expected)\n        [x] field-value - expected value 'test', got 'other'\n        Total: 3 assertions, 2 successful, 1 failed\n"
 		assert.Equal(t, expected, formatted)
 	})
 
 	t.Run("handles empty results", func(t *testing.T) {
-		result := NewTestCaseResult("test", "test-id", true, false, false, false, false)
+		result := NewTestCaseResult("test", "test-id", true, false, false, false, true)
+		result.AssertionsResults = []AssertionResult{}
+		formatted := result.formatAssertionsOutput()
 
-		assertionResults := []AssertionResult{}
-		formatted := result.formatAssertionsOutput(assertionResults, false)
-
-		expected := ""
-		assert.Equal(t, expected, formatted)
+		assert.Empty(t, formatted)
 	})
 
 	t.Run("handles single assertion", func(t *testing.T) {
-		result := NewTestCaseResult("test", "test-id", true, false, false, false, false)
-
-		assertionResults := []AssertionResult{
+		result := NewTestCaseResult("test", "test-id", true, false, false, false, true)
+		result.AssertionsResults = []AssertionResult{
 			NewAssertionResult("single-check", StatusPass, "all good"),
 		}
-		formatted := result.formatAssertionsOutput(assertionResults, false)
+		formatted := result.formatAssertionsOutput()
 
-		expected := "    Assertions results:\n        PASS: single-check - all good"
+		expected := "    Assertions:\n        [✓] single-check - all good\n        Total: 1 assertions, 1 successful, 0 failed\n"
 		assert.Equal(t, expected, formatted)
 	})
 
 	t.Run("handles multiple assertions with mixed statuses", func(t *testing.T) {
-		result := NewTestCaseResult("test", "test-id", true, false, false, false, false)
-
-		assertionResults := []AssertionResult{
+		result := NewTestCaseResult("test", "test-id", true, false, false, false, true)
+		result.AssertionsResults = []AssertionResult{
 			NewAssertionResult("pass-1", StatusPass, "passed"),
 			NewAssertionResult("fail-1", StatusFail, "failed"),
 			NewAssertionResult("pass-2", StatusPass, "passed again"),
 			NewAssertionResult("fail-2", StatusFail, "failed again"),
 		}
-		formatted := result.formatAssertionsOutput(assertionResults, false)
+		formatted := result.formatAssertionsOutput()
 
-		expected := "    Assertions results:\n        PASS: pass-1 - passed\n        FAIL: fail-1 - failed\n        PASS: pass-2 - passed again\n        FAIL: fail-2 - failed again"
+		expected := "    Assertions:\n        [✓] pass-1 - passed\n        [x] fail-1 - failed\n        [✓] pass-2 - passed again\n        [x] fail-2 - failed again\n        Total: 4 assertions, 2 successful, 2 failed\n"
 		assert.Equal(t, expected, formatted)
 	})
 
 	t.Run("handles assertions with long messages", func(t *testing.T) {
-		result := NewTestCaseResult("test", "test-id", true, false, false, false, false)
-
+		result := NewTestCaseResult("test", "test-id", true, false, false, false, true)
 		longMessage := "This is a very long assertion message that contains multiple words and describes what went wrong in great detail so that the user can understand the issue"
-		assertionResults := []AssertionResult{
+		result.AssertionsResults = []AssertionResult{
 			NewAssertionResult("long-message", StatusFail, longMessage),
 		}
-		formatted := result.formatAssertionsOutput(assertionResults, false)
+		formatted := result.formatAssertionsOutput()
 
-		expected := "    Assertions results:\n        FAIL: long-message - " + longMessage
+		expected := "    Assertions:\n        [x] long-message - " + longMessage + "\n        Total: 1 assertions, 0 successful, 1 failed\n"
+		assert.Equal(t, expected, formatted)
+	})
+
+	t.Run("includes Assertions header and 8-space body (same format for error block and verbose)", func(t *testing.T) {
+		result := NewTestCaseResult("test", "test-id", true, false, false, false, true)
+		result.AssertionsResults = []AssertionResult{
+			NewAssertionResult("broken", StatusFail, "something broke"),
+		}
+		formatted := result.formatAssertionsOutput()
+
+		expected := "    Assertions:\n        [x] broken - something broke\n        Total: 1 assertions, 0 successful, 1 failed\n"
+		assert.Equal(t, expected, formatted)
+	})
+
+	t.Run("showOnlyFailed lists only failed assertions but total uses full counts", func(t *testing.T) {
+		result := NewTestCaseResult("test", "test-id", false, false, false, false, false) // !Verbose && !ShowAssertions + hasFailedAssertions => failed only
+		result.HasFailedAssertions = true
+		result.AssertionsResults = []AssertionResult{
+			NewAssertionResult("pass-one", StatusPass, "ok"),
+			NewAssertionResult("fail-one", StatusFail, "expected 0, got 2"),
+		}
+		formatted := result.formatAssertionsOutput()
+
+		expected := "    Assertions:\n        [x] fail-one - expected 0, got 2\n        Total: 2 assertions, 1 successful, 1 failed\n"
 		assert.Equal(t, expected, formatted)
 	})
 }
@@ -691,11 +713,11 @@ func TestTestCaseResult_formatHooksOutput(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", true, false, false, false, false)
 
 		hookResults := []HookResult{
-			NewHookResult("test-hook", "echo 'hello\nworld'", []byte("hello\nworld"), []byte(""), nil),
+			NewHookResult("test-hook", "echo 'hello\nworld'", []byte("hello\nworld"), nil),
 		}
-		formatted := result.formatHooksOutput(hookResults, "pre-test")
+		formatted := result.formatHooksOutputWithShow(hookResults, "pre-test", true)
 
-		expected := "    pre-test hooks results:\n        - test-hook\n            hello\n            world"
+		expected := "    Pre-test Hooks:\n        [✓] test-hook\n            hello\n            world\n"
 		assert.Equal(t, expected, formatted)
 	})
 
@@ -703,7 +725,7 @@ func TestTestCaseResult_formatHooksOutput(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", true, false, false, false, false)
 
 		hookResults := []HookResult{}
-		formatted := result.formatHooksOutput(hookResults, "pre-test")
+		formatted := result.formatHooksOutputWithShow(hookResults, "pre-test", true)
 
 		assert.Empty(t, formatted)
 	})
@@ -712,12 +734,12 @@ func TestTestCaseResult_formatHooksOutput(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", true, false, false, false, false)
 
 		hookResults := []HookResult{
-			NewHookResult("test-hook", "echo '   \n  \t  \n  '", []byte("   \n  \t  \n  "), []byte(""), nil),
+			NewHookResult("test-hook", "echo '   \n  \t  \n  '", []byte("   \n  \t  \n  "), nil),
 		}
-		formatted := result.formatHooksOutput(hookResults, "post-test")
+		formatted := result.formatHooksOutputWithShow(hookResults, "post-test", true)
 
-		// Should show hook header but no output content since it's whitespace-only
-		expected := "    post-test hooks results:\n        - test-hook"
+		// body: "   \n  \t  \n  " -> indented with 12 spaces after each newline, then 12 spaces prefix (first line: 12+3)
+		expected := "    Post-test Hooks:\n        [✓] test-hook\n               \n              \t  \n              \n"
 		assert.Equal(t, expected, formatted)
 	})
 
@@ -725,11 +747,11 @@ func TestTestCaseResult_formatHooksOutput(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", true, false, false, false, false)
 
 		hookResults := []HookResult{
-			NewHookResult("test-hook", "echo 'single line'", []byte("single line"), []byte(""), nil),
+			NewHookResult("test-hook", "echo 'single line'", []byte("single line"), nil),
 		}
-		formatted := result.formatHooksOutput(hookResults, "pre-test")
+		formatted := result.formatHooksOutputWithShow(hookResults, "pre-test", true)
 
-		expected := "    pre-test hooks results:\n        - test-hook\n            single line"
+		expected := "    Pre-test Hooks:\n        [✓] test-hook\n            single line\n"
 		assert.Equal(t, expected, formatted)
 	})
 
@@ -737,12 +759,49 @@ func TestTestCaseResult_formatHooksOutput(t *testing.T) {
 		result := NewTestCaseResult("test", "test-id", true, false, false, false, false)
 
 		hookResults := []HookResult{
-			NewHookResult("test-hook", "echo 'line 1\nline 2\nline 3'", []byte("line 1\nline 2\nline 3"), []byte(""), nil),
+			NewHookResult("test-hook", "echo 'line 1\nline 2\nline 3'", []byte("line 1\nline 2\nline 3"), nil),
 		}
-		formatted := result.formatHooksOutput(hookResults, "post-test")
+		formatted := result.formatHooksOutputWithShow(hookResults, "post-test", true)
 
-		expected := "    post-test hooks results:\n        - test-hook\n            line 1\n            line 2\n            line 3"
+		expected := "    Post-test Hooks:\n        [✓] test-hook\n            line 1\n            line 2\n            line 3\n"
 		assert.Equal(t, expected, formatted)
+	})
+
+	t.Run("showAll false returns only failed hooks", func(t *testing.T) {
+		result := NewTestCaseResult("test", "test-id", true, false, false, false, false)
+
+		hookResults := []HookResult{
+			NewHookResult("ok-hook", "echo ok", []byte("ok"), nil),
+			NewHookResult("fail-hook", "exit 1", []byte("out\nerr"), errors.New("exit status 1")),
+		}
+		formatted := result.formatHooksOutputWithShow(hookResults, "pre-test", false)
+
+		assert.Contains(t, formatted, "[x] fail-hook")
+		assert.Contains(t, formatted, "error: exit status 1")
+		assert.Contains(t, formatted, "out")
+		assert.Contains(t, formatted, "err")
+		assert.NotContains(t, formatted, "ok-hook")
+		assert.NotContains(t, formatted, "exit code")
+	})
+
+	t.Run("non-exit failures include root cause details", func(t *testing.T) {
+		result := NewTestCaseResult("test", "test-id", true, false, false, false, false)
+
+		hookResults := []HookResult{
+			NewHookResult(
+				"post-hook-template",
+				"echo '{{ .Outputs.UnknownField }}'",
+				nil,
+				errors.New("failed to render hook template: hook:1:17: executing \"hook\" at <.Outputs.UnknownField>: can't evaluate field UnknownField in type *engine.Outputs"),
+			),
+		}
+		formatted := result.formatHooksOutputWithShow(hookResults, "post-test", true)
+
+		assert.Contains(t, formatted, "Post-test Hooks:")
+		assert.Contains(t, formatted, "[x] post-hook-template")
+		assert.Contains(t, formatted, "error: failed to render hook template")
+		assert.Contains(t, formatted, "can't evaluate field UnknownField")
+		assert.NotContains(t, formatted, "exit code")
 	})
 }
 
