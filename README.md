@@ -39,6 +39,76 @@ Yes. xprin runs entirely locally in a mock environment. It does not create or mo
 **What is the purpose of patching?**  
 To extend coverage, by creating as many test cases we need without having to provide testdata for each one of them.
 
+**How does it look like?**  
+<details>
+<summary> The testsuite files are in YAML </summary>
+
+tests:
+- name: "Successful test with hooks, validation, and assertions"
+  patches:
+    xrd: ../../aws/xrd.yaml
+  inputs:
+    xr: ../../aws/xr.yaml
+    composition: ../../aws/composition.yaml
+    functions: ../../aws/functions.yaml
+    observed-resources: ../../aws/observed
+    crds:
+    - ../../aws/xrd.yaml
+    - ../../aws/crossplane.yaml
+  hooks:
+    pre-test:
+    - name: "this is a pre-test hook"
+      run: echo "hello"
+    post-test:
+    - name: "this is a post-test hook"
+      run: echo "bye"
+  assertions:
+    xprin:
+    - name: "Number of resources"
+      type: "Count"
+      value: 3
+    - name: "SecurityGroup should exist"
+      type: "Exists"
+      resource: "SecurityGroup/platform-aws-sg"
+    diff:
+    - name: "Full render matches golden (using diff)"
+      expected: golden_full_render.yaml
+</details>
+
+<details>
+<summary> The output is similar to `go test` </summary>
+
+```
+➜ xprin test simple_test_xprin.yaml -v --show-render --show-validate --show-assertions --show-hooks
+=== RUN   Successful test with hooks, validation, and assertions
+--- PASS: Successful test with hooks, validation, and assertions (1.31s)
+    Pre-test Hooks:
+        [✓] this is a pre-test hook
+            hello
+    Render:
+        ├── XAWSInfrastructure/platform-aws
+        ├── Cluster/platform-aws-rds
+        └── SecurityGroup/platform-aws-sg
+    Validate:
+        [✓] aws.example.com/v1, Kind=XAWSInfrastructure, platform-aws validated successfully
+        [✓] rds.aws.upbound.io/v1beta1, Kind=Cluster, platform-aws-rds validated successfully
+        [✓] ec2.aws.upbound.io/v1beta1, Kind=SecurityGroup, platform-aws-sg validated successfully
+        Total 3 resources: 0 missing schemas, 3 success cases, 0 failure cases
+    Assertions:
+        [✓] Number of resources - found 3 resources (as expected)
+        [✓] SecurityGroup should exist - resource SecurityGroup/platform-aws-sg found
+        [✓] Full render matches golden (using diff) - files match
+        Total: 3 assertions, 3 successful, 0 failed, 0 errors
+    Post-test Hooks:
+        [✓] this is a post-test hook
+            bye
+PASS
+ok      examples/mytests/0_e2e/used_in_readme_xprin.yaml        1.314s
+```
+</details>
+
+See [Getting Started](docs/getting-started.md) and [Examples](examples) for more.
+
 **What does “xprin” mean?**  
 Crossplane + [πριν](https://en.wiktionary.org/wiki/%CF%80%CF%81%CE%AF%CE%BD), before Crossplane! ([backstory](https://github.com/crossplane/org/issues/103#issuecomment-3493403731))
 
