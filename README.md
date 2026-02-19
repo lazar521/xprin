@@ -22,27 +22,33 @@ A Crossplane testing framework that leverages `crossplane render` and `crossplan
 
 ## FAQ
 
-**Why was xprin created?**  
+#### Why was xprin created?
+
 To bridge the testing gap between function-level testing and full e2e testing: you can run render and validate locally with real Compositions and Functions, without a live cluster or real resource creation.
 It was originally developed by Elastic, where it is currently being used for mock/integration testing of a [large infrastructure](https://www.elastic.co/blog/journey-to-build-elastic-cloud-serverless).
 
-**What are typical use cases?**
+#### What are typical use cases?
+
 - **Composition testing**: Run `crossplane render` using various combinations of XRs/Claims, Compositions and Functions, and assert on the output.
 - **Schema validation**: Validate various combinations of (mock or production) manifests with CRDs via `crossplane beta validate`.
 - **Reconciliation emulation**: Chain tests with exported artifacts so later tests consume prior outputs (e.g. observed resources, status).
 - **Advanced render inputs**: Drive render with extra resources, observed resources, additional context, environment configs, in multiple tests run one after the other.
 - **Upgrades**: Validate upgrades of Crossplane itself, providers, functions before or after adoption.
 
-**Can I test using my production XRs/Claims or data?**  
+#### Can I test using my production XRs/Claims or data?
+
 Yes. xprin runs entirely locally in a mock environment. It does not create or modify real resources; it only runs `crossplane render` and `crossplane beta validate` on the inputs you provide, so you can safely point at production data.
 
-**What is the purpose of patching?**  
+#### What is the purpose of patching?
+
 To extend coverage, by creating as many test cases we need without having to provide testdata for each one of them.
 
-**How does it look like?**  
+#### How does it look like?
+
 <details>
 <summary> The testsuite files are in YAML </summary>
 
+```yaml
 tests:
 - name: "Successful test with hooks, validation, and assertions"
   patches:
@@ -73,6 +79,7 @@ tests:
     diff:
     - name: "Full render matches golden (using diff)"
       expected: golden_full_render.yaml
+```
 </details>
 
 <details>
@@ -107,9 +114,10 @@ ok      examples/mytests/0_e2e/used_in_readme_xprin.yaml        1.314s
 ```
 </details>
 
-See [Getting Started](docs/getting-started.md) and [Examples](examples) for more.
+*See [Getting Started](docs/getting-started.md) and [Examples](examples) for more.*
 
-**What does “xprin” mean?**  
+#### What does “xprin” mean?
+
 Crossplane + [πριν](https://en.wiktionary.org/wiki/%CF%80%CF%81%CE%AF%CE%BD), before Crossplane! ([backstory](https://github.com/crossplane/org/issues/103#issuecomment-3493403731))
 
 ## How it works
